@@ -120,6 +120,14 @@ impl Iterator for DirectedLineSegmentIter {
     }
 }
 
+impl IntoIterator for DirectedLineSegment {
+    type Item = Coord;
+    type IntoIter = DirectedLineSegmentIter;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 #[cfg(test)]
 mod test {
     extern crate rand;
