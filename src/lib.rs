@@ -15,16 +15,15 @@ impl DirectedLineSegment {
     pub fn delta(&self) -> Coord {
         self.end - self.start
     }
-    pub fn manhatten_length(&self) -> usize {
-        let delta = self.delta();
-        delta.x.abs().max(delta.y.abs()) as usize
-    }
     pub fn iter(&self) -> DirectedLineSegmentIter {
         DirectedLineSegmentIter::new(*self)
     }
+    fn steps(&self) -> Steps {
+        Steps::new(self.delta())
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct Steps {
     major_axis: Axis,
     major_sign: i8,
@@ -63,7 +62,7 @@ impl Steps {
     }
     fn prev(&mut self) -> Coord {
         self.accumulator -= self.minor_delta_abs as i64;
-        if self.accumulator <= -(self.major_delta_abs as i64 / 2) {
+        if self.accumulator <= (self.major_delta_abs as i64 / 2) - self.major_delta_abs as i64 {
             self.accumulator += self.major_delta_abs as i64;
             Coord::new_axis(
                 -self.major_sign as i32,
@@ -98,7 +97,7 @@ pub struct DirectedLineSegmentIter {
 
 impl DirectedLineSegmentIter {
     fn new(directed_line_segment: DirectedLineSegment) -> Self {
-        let mut steps = Steps::new(directed_line_segment.delta());
+        let mut steps = directed_line_segment.steps();
         let backwards_step = steps.prev();
         let current_coord = directed_line_segment.start + backwards_step;
         Self {
@@ -128,11 +127,30 @@ mod test {
     use self::rand::{Rng, SeedableRng};
     use super::*;
 
+    fn manhatten_length(delta: Coord) -> usize {
+        delta.x.abs().max(delta.y.abs()) as usize
+    }
+
     fn test_properties(directed_line_segment: DirectedLineSegment) {
         let coords: Vec<_> = directed_line_segment.iter().collect();
-        assert_eq!(coords.len(), directed_line_segment.manhatten_length() + 1);
+        assert_eq!(
+            coords.len(),
+            manhatten_length(directed_line_segment.delta()) + 1
+        );
         assert_eq!(*coords.first().unwrap(), directed_line_segment.start);
         assert_eq!(*coords.last().unwrap(), directed_line_segment.end);
+        let mut steps = directed_line_segment.steps();
+        for _ in 0..manhatten_length(directed_line_segment.delta()) {
+            let before = steps.clone();
+            steps.next();
+            let mut after = steps.clone();
+            after.prev();
+            assert_eq!(
+                before, after,
+                "\n{:#?}\n{:#?}\n{:#?}",
+                before, after, directed_line_segment
+            );
+        }
     }
 
     fn rand_int<R: Rng>(rng: &mut R) -> i32 {
@@ -151,7 +169,9 @@ mod test {
     #[test]
     fn iterator_reaches_end() {
         test_properties(DirectedLineSegment::new(Coord::new(0, 0), Coord::new(0, 0)));
-        test_properties(DirectedLineSegment::new(Coord::new(1, 1), Coord::new(0, 0)));
+        test_properties(DirectedLineSegment::new(Coord::new(0, 0), Coord::new(1, 1)));
+        test_properties(DirectedLineSegment::new(Coord::new(0, 0), Coord::new(1, 0)));
+        test_properties(DirectedLineSegment::new(Coord::new(0, 0), Coord::new(2, 1)));
         test_properties(DirectedLineSegment::new(
             Coord::new(1, -1),
             Coord::new(0, 0),
