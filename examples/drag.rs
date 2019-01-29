@@ -1,9 +1,9 @@
 extern crate line_2d;
 extern crate prototty_unix;
 
-use line_2d::{Coord, DirectedLineSegment};
-use prototty_unix::prototty_input::{inputs, Input};
-use prototty_unix::prototty_render::{Rgb24, View, ViewCell, ViewGrid};
+use line_2d::Coord;
+use prototty_unix::prototty_input::{inputs, Input, MouseButton};
+use prototty_unix::prototty_render::{colours, View, ViewCell, ViewGrid};
 use prototty_unix::Context;
 
 struct AppView;
@@ -11,18 +11,41 @@ struct AppView;
 struct App {
     coord: Option<Coord>,
     last_clicked_coord: Option<Coord>,
+    cardinal_only: bool,
+}
+
+fn draw_line<G: ViewGrid, I: IntoIterator<Item = Coord>>(
+    grid: &mut G,
+    iter: I,
+    offset: Coord,
+    depth: i32,
+) {
+    for coord in iter {
+        grid.set_cell(
+            coord + offset,
+            depth,
+            ViewCell::new().with_background(colours::WHITE),
+        );
+    }
 }
 
 impl View<App> for AppView {
     fn view<G: ViewGrid>(&mut self, app: &App, offset: Coord, depth: i32, grid: &mut G) {
-        let white = Rgb24::new(255, 255, 255);
         match (app.last_clicked_coord, app.coord) {
             (Some(last_clicked_coord), Some(coord)) => {
-                for coord in DirectedLineSegment::new(last_clicked_coord, coord) {
-                    grid.set_cell(
-                        coord + offset,
+                if app.cardinal_only {
+                    draw_line(
+                        grid,
+                        line_2d::line_segment(last_clicked_coord, coord),
+                        offset,
                         depth,
-                        ViewCell::new().with_character(' ').with_background(white),
+                    );
+                } else {
+                    draw_line(
+                        grid,
+                        line_2d::line_segment(last_clicked_coord, coord),
+                        offset,
+                        depth,
                     );
                 }
             }
@@ -36,12 +59,15 @@ fn main() {
     let mut app = App::default();
     loop {
         match context.wait_input().unwrap() {
-            inputs::ESCAPE | inputs::ETX => break,
             Input::MouseMove(coord) => {
                 app.coord = Some(coord);
             }
-            Input::MousePress { coord, button: _ } => {
+            Input::MousePress { coord, button } => {
                 app.last_clicked_coord = Some(coord);
+                match button {
+                    MouseButton::Right => app.cardinal_only = true,
+                    MouseButton::Left | MouseButton::Middle => app.cardinal_only = false,
+                }
             }
             Input::MouseRelease {
                 coord: _,
@@ -49,6 +75,7 @@ fn main() {
             } => {
                 app.last_clicked_coord = None;
             }
+            inputs::ETX => break,
             _ => (),
         }
         context.render(&mut AppView, &app).unwrap();

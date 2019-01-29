@@ -2,29 +2,143 @@ extern crate coord_2d;
 use coord_2d::Axis;
 pub use coord_2d::Coord;
 
+pub trait StepsTrait: Clone + Eq + private::Sealed {
+    fn prev(&mut self) -> Coord;
+    fn next(&mut self) -> Coord;
+}
+
+pub trait LineSegmentTrait: private::Sealed {
+    type Steps: StepsTrait;
+    fn num_steps(&self) -> usize;
+    fn steps(&self) -> Self::Steps;
+    fn iter(&self) -> LineSegmentIter<Self::Steps>;
+    fn start(&self) -> Coord;
+    fn end(&self) -> Coord;
+}
+
+#[derive(Default, Debug, Clone, Copy)]
+pub struct Config {
+    pub exclude_start: bool,
+    pub exclude_end: bool,
+}
+
+impl Config {
+    pub fn include_start(self) -> Self {
+        Self {
+            exclude_start: false,
+            ..self
+        }
+    }
+    pub fn include_end(self) -> Self {
+        Self {
+            exclude_end: false,
+            ..self
+        }
+    }
+    pub fn exclude_start(self) -> Self {
+        Self {
+            exclude_start: true,
+            ..self
+        }
+    }
+    pub fn extlude_end(self) -> Self {
+        Self {
+            exclude_end: true,
+            ..self
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct DirectedLineSegment {
+pub struct LineSegment {
     pub start: Coord,
     pub end: Coord,
 }
 
-impl DirectedLineSegment {
+impl LineSegment {
     pub fn new(start: Coord, end: Coord) -> Self {
         Self { start, end }
     }
     pub fn delta(&self) -> Coord {
         self.end - self.start
     }
-    pub fn iter(&self) -> DirectedLineSegmentIter {
-        DirectedLineSegmentIter::new(*self)
+    pub fn iter(&self) -> LineSegmentIter<Steps> {
+        LineSegmentIter::new(*self)
     }
-    fn steps(&self) -> Steps {
+    pub fn iter_cardinal(&self) -> LineSegmentIter<StepsCardinal> {
+        LineSegmentIter::new(LineSegmentCardinal(*self))
+    }
+    pub fn steps(&self) -> Steps {
         Steps::new(self.delta())
+    }
+    pub fn steps_cardinal(&self) -> StepsCardinal {
+        StepsCardinal::new(self.delta())
+    }
+    pub fn num_steps(&self) -> usize {
+        let delta = self.delta();
+        delta.x.abs().max(delta.y.abs()) as usize + 1
+    }
+    pub fn num_steps_cardinal(&self) -> usize {
+        let delta = self.delta();
+        delta.x.abs() as usize + delta.y.abs() as usize + 1
+    }
+    pub fn cardinal(&self) -> LineSegmentCardinal {
+        LineSegmentCardinal(*self)
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Steps {
+impl LineSegmentTrait for LineSegment {
+    type Steps = Steps;
+    fn num_steps(&self) -> usize {
+        LineSegment::num_steps(self)
+    }
+    fn steps(&self) -> Self::Steps {
+        LineSegment::steps(self)
+    }
+    fn iter(&self) -> LineSegmentIter<Self::Steps> {
+        LineSegment::iter(self)
+    }
+    fn start(&self) -> Coord {
+        self.start
+    }
+    fn end(&self) -> Coord {
+        self.end
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct LineSegmentCardinal(LineSegment);
+
+impl LineSegmentCardinal {
+    pub fn new(start: Coord, end: Coord) -> Self {
+        LineSegmentCardinal(LineSegment::new(start, end))
+    }
+    pub fn line_segment(&self) -> LineSegment {
+        self.0
+    }
+}
+
+impl LineSegmentTrait for LineSegmentCardinal {
+    type Steps = StepsCardinal;
+    fn num_steps(&self) -> usize {
+        LineSegment::num_steps_cardinal(&self.0)
+    }
+    fn steps(&self) -> Self::Steps {
+        LineSegment::steps_cardinal(&self.0)
+    }
+    fn iter(&self) -> LineSegmentIter<Self::Steps> {
+        LineSegment::iter_cardinal(&self.0)
+    }
+    fn start(&self) -> Coord {
+        self.0.start
+    }
+    fn end(&self) -> Coord {
+        self.0.end
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Steps {
     major_axis: Axis,
     major_sign: i8,
     minor_sign: i8,
@@ -34,7 +148,7 @@ struct Steps {
 }
 
 impl Steps {
-    fn new(delta: Coord) -> Self {
+    pub fn new(delta: Coord) -> Self {
         let (major_axis, minor_axis) = if delta.x.abs() > delta.y.abs() {
             (Axis::X, Axis::Y)
         } else {
@@ -60,6 +174,9 @@ impl Steps {
             minor_delta_abs,
         }
     }
+}
+
+impl StepsTrait for Steps {
     fn prev(&mut self) -> Coord {
         self.accumulator -= self.minor_delta_abs as i64;
         if self.accumulator <= (self.major_delta_abs as i64 / 2) - self.major_delta_abs as i64 {
@@ -88,44 +205,105 @@ impl Steps {
     }
 }
 
-#[derive(Debug)]
-pub struct DirectedLineSegmentIter {
-    steps: Steps,
-    directed_line_segment: DirectedLineSegment,
-    current_coord: Coord,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StepsCardinal(Steps);
+
+impl StepsCardinal {
+    fn new(delta: Coord) -> Self {
+        StepsCardinal(Steps::new(delta))
+    }
 }
 
-impl DirectedLineSegmentIter {
-    fn new(directed_line_segment: DirectedLineSegment) -> Self {
-        let mut steps = directed_line_segment.steps();
-        let backwards_step = steps.prev();
-        let current_coord = directed_line_segment.start + backwards_step;
-        Self {
-            steps,
-            directed_line_segment,
-            current_coord,
+impl StepsTrait for StepsCardinal {
+    fn prev(&mut self) -> Coord {
+        self.0.accumulator -= self.0.minor_delta_abs as i64;
+        if self.0.accumulator
+            <= (self.0.major_delta_abs as i64 / 2)
+                - self.0.major_delta_abs as i64
+                - self.0.minor_delta_abs as i64
+        {
+            self.0.accumulator += self.0.major_delta_abs as i64 + self.0.minor_delta_abs as i64;;
+            Coord::new_axis(0, -self.0.minor_sign as i32, self.0.major_axis)
+        } else {
+            Coord::new_axis(-self.0.major_sign as i32, 0, self.0.major_axis)
+        }
+    }
+    fn next(&mut self) -> Coord {
+        self.0.accumulator += self.0.minor_delta_abs as i64;
+        if self.0.accumulator > self.0.major_delta_abs as i64 / 2 {
+            self.0.accumulator -= self.0.major_delta_abs as i64 + self.0.minor_delta_abs as i64;
+            Coord::new_axis(0, self.0.minor_sign as i32, self.0.major_axis)
+        } else {
+            Coord::new_axis(self.0.major_sign as i32, 0, self.0.major_axis)
         }
     }
 }
 
-impl Iterator for DirectedLineSegmentIter {
+#[derive(Debug, Clone, Copy)]
+pub struct LineSegmentIter<S: StepsTrait> {
+    steps: S,
+    current_coord: Coord,
+    remaining: usize,
+}
+
+impl<S: StepsTrait> LineSegmentIter<S> {
+    fn new<L: LineSegmentTrait<Steps = S>>(line_segment: L) -> Self {
+        let mut steps = line_segment.steps();
+        let backwards_step = steps.prev();
+        let current_coord = line_segment.start() + backwards_step;
+        let remaining = line_segment.num_steps();
+        Self {
+            steps,
+            current_coord,
+            remaining,
+        }
+    }
+}
+
+impl<S: StepsTrait> Iterator for LineSegmentIter<S> {
     type Item = Coord;
     fn next(&mut self) -> Option<Self::Item> {
-        if self.current_coord == self.directed_line_segment.end {
+        if self.remaining == 0 {
             return None;
         }
         let step = self.steps.next();
         self.current_coord += step;
+        self.remaining -= 1;
         Some(self.current_coord)
     }
 }
 
-impl IntoIterator for DirectedLineSegment {
+impl IntoIterator for LineSegment {
     type Item = Coord;
-    type IntoIter = DirectedLineSegmentIter;
+    type IntoIter = LineSegmentIter<Steps>;
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
+}
+
+impl IntoIterator for LineSegmentCardinal {
+    type Item = Coord;
+    type IntoIter = LineSegmentIter<StepsCardinal>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+pub fn line_segment(start: Coord, end: Coord) -> LineSegment {
+    LineSegment::new(start, end)
+}
+
+pub fn line_segment_cardinal(start: Coord, end: Coord) -> LineSegmentCardinal {
+    LineSegmentCardinal::new(start, end)
+}
+
+mod private {
+    pub trait Sealed {}
+
+    impl Sealed for super::LineSegment {}
+    impl Sealed for super::LineSegmentCardinal {}
+    impl Sealed for super::Steps {}
+    impl Sealed for super::StepsCardinal {}
 }
 
 #[cfg(test)]
@@ -135,20 +313,17 @@ mod test {
     use self::rand::{Rng, SeedableRng};
     use super::*;
 
-    fn manhatten_length(delta: Coord) -> usize {
-        delta.x.abs().max(delta.y.abs()) as usize
-    }
-
-    fn test_properties(directed_line_segment: DirectedLineSegment) {
-        let coords: Vec<_> = directed_line_segment.iter().collect();
-        assert_eq!(
-            coords.len(),
-            manhatten_length(directed_line_segment.delta()) + 1
-        );
-        assert_eq!(*coords.first().unwrap(), directed_line_segment.start);
-        assert_eq!(*coords.last().unwrap(), directed_line_segment.end);
-        let mut steps = directed_line_segment.steps();
-        for _ in 0..manhatten_length(directed_line_segment.delta()) {
+    fn test_properties_gen<L>(line_segment: L)
+    where
+        L: LineSegmentTrait + ::std::fmt::Debug,
+        L::Steps: ::std::fmt::Debug,
+    {
+        let coords: Vec<_> = line_segment.iter().collect();
+        assert_eq!(coords.len(), line_segment.num_steps());
+        assert_eq!(*coords.first().unwrap(), line_segment.start());
+        assert_eq!(*coords.last().unwrap(), line_segment.end());
+        let mut steps = line_segment.steps();
+        for _ in 0..line_segment.num_steps() {
             let before = steps.clone();
             steps.next();
             let mut after = steps.clone();
@@ -156,9 +331,14 @@ mod test {
             assert_eq!(
                 before, after,
                 "\n{:#?}\n{:#?}\n{:#?}",
-                before, after, directed_line_segment
+                before, after, line_segment
             );
         }
+    }
+
+    fn test_properties(line_segment: LineSegment) {
+        test_properties_gen(line_segment);
+        test_properties_gen(line_segment.cardinal());
     }
 
     fn rand_int<R: Rng>(rng: &mut R) -> i32 {
@@ -170,32 +350,23 @@ mod test {
         Coord::new(rand_int(rng), rand_int(rng))
     }
 
-    fn rand_directed_line_segment<R: Rng>(rng: &mut R) -> DirectedLineSegment {
-        DirectedLineSegment::new(rand_coord(rng), rand_coord(rng))
+    fn rand_line_segment<R: Rng>(rng: &mut R) -> LineSegment {
+        LineSegment::new(rand_coord(rng), rand_coord(rng))
     }
 
     #[test]
     fn iterator_reaches_end() {
-        test_properties(DirectedLineSegment::new(Coord::new(0, 0), Coord::new(0, 0)));
-        test_properties(DirectedLineSegment::new(Coord::new(0, 0), Coord::new(1, 1)));
-        test_properties(DirectedLineSegment::new(Coord::new(0, 0), Coord::new(1, 0)));
-        test_properties(DirectedLineSegment::new(Coord::new(0, 0), Coord::new(2, 1)));
-        test_properties(DirectedLineSegment::new(
-            Coord::new(1, -1),
-            Coord::new(0, 0),
-        ));
-        test_properties(DirectedLineSegment::new(
-            Coord::new(1, 100),
-            Coord::new(0, 0),
-        ));
-        test_properties(DirectedLineSegment::new(
-            Coord::new(100, 1),
-            Coord::new(0, 0),
-        ));
+        test_properties(LineSegment::new(Coord::new(0, 0), Coord::new(0, 0)));
+        test_properties(LineSegment::new(Coord::new(0, 0), Coord::new(1, 1)));
+        test_properties(LineSegment::new(Coord::new(0, 0), Coord::new(1, 0)));
+        test_properties(LineSegment::new(Coord::new(0, 0), Coord::new(2, 1)));
+        test_properties(LineSegment::new(Coord::new(1, -1), Coord::new(0, 0)));
+        test_properties(LineSegment::new(Coord::new(1, 100), Coord::new(0, 0)));
+        test_properties(LineSegment::new(Coord::new(100, 1), Coord::new(0, 0)));
         const NUM_RAND_TESTS: usize = 10000;
         let mut rng = StdRng::seed_from_u64(0);
         for _ in 0..NUM_RAND_TESTS {
-            test_properties(rand_directed_line_segment(&mut rng));
+            test_properties(rand_line_segment(&mut rng));
         }
     }
 }
