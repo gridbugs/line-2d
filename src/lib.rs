@@ -18,6 +18,7 @@ pub trait TraverseTrait: Clone + Eq + private::Sealed {
     fn num_steps(&self) -> usize;
     fn steps(&self) -> Self::Steps;
     fn iter(&self) -> Self::Iter;
+    fn iter_config(&self, config: Config) -> Self::Iter;
     fn line_segment(&self) -> LineSegment;
     fn start(&self) -> Coord {
         self.line_segment().start
@@ -39,6 +40,9 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn new() -> Self {
+        Default::default()
+    }
     pub fn include_start(self) -> Self {
         Self {
             exclude_start: false,
@@ -57,7 +61,7 @@ impl Config {
             ..self
         }
     }
-    pub fn extlude_end(self) -> Self {
+    pub fn exclude_end(self) -> Self {
         Self {
             exclude_end: true,
             ..self
@@ -104,6 +108,12 @@ impl LineSegment {
     pub fn iter_cardinal(&self) -> LineSegmentIterCardinal {
         GeneralLineSegmentIter::new(self.traverse_cardinal())
     }
+    pub fn iter_config(&self, config: Config) -> LineSegmentIter {
+        GeneralLineSegmentIter::new_config(self.traverse(), config)
+    }
+    pub fn iter_cardinal_config(&self, config: Config) -> LineSegmentIterCardinal {
+        GeneralLineSegmentIter::new_config(self.traverse_cardinal(), config)
+    }
     pub fn steps(&self) -> Steps {
         Steps::new(self.delta())
     }
@@ -132,6 +142,9 @@ impl TraverseTrait for Traverse {
     fn iter(&self) -> Self::Iter {
         self.line_segment.iter()
     }
+    fn iter_config(&self, config: Config) -> Self::Iter {
+        self.line_segment.iter_config(config)
+    }
     fn line_segment(&self) -> LineSegment {
         self.line_segment
     }
@@ -148,6 +161,9 @@ impl TraverseTrait for TraverseCardinal {
     }
     fn iter(&self) -> LineSegmentIterCardinal {
         self.line_segment.iter_cardinal()
+    }
+    fn iter_config(&self, config: Config) -> LineSegmentIterCardinal {
+        self.line_segment.iter_cardinal_config(config)
     }
     fn line_segment(&self) -> LineSegment {
         self.line_segment
@@ -280,6 +296,17 @@ impl<S: StepsTrait> GeneralLineSegmentIter<S> {
             remaining,
         }
     }
+
+    fn new_config<T: TraverseTrait<Steps = S>>(traverse: T, config: Config) -> Self {
+        let mut iter = Self::new(traverse);
+        if config.exclude_end {
+            iter.remaining -= 1;
+        }
+        if config.exclude_start {
+            iter.next();
+        }
+        iter
+    }
 }
 
 impl<S: StepsTrait> Iterator for GeneralLineSegmentIter<S> {
@@ -339,6 +366,35 @@ mod test {
                 "\n{:#?}\n{:#?}\n{:#?}",
                 before, after, traverse
             );
+        }
+        let orig_coords = coords;
+        let coords: Vec<_> = traverse
+            .iter_config(Config::new().exclude_start().exclude_end())
+            .collect();
+        assert_eq!(coords.len(), traverse.num_steps().max(2) - 2);
+        if let Some(&coord) = coords.first() {
+            assert_eq!(coord, orig_coords[1]);
+        }
+        if let Some(&coord) = coords.last() {
+            assert_eq!(coord, orig_coords[orig_coords.len() - 2]);
+        }
+        let coords: Vec<_> = traverse
+            .iter_config(Config::new().exclude_start())
+            .collect();
+        assert_eq!(coords.len(), traverse.num_steps().max(1) - 1);
+        if let Some(&coord) = coords.first() {
+            assert_eq!(coord, orig_coords[1]);
+        }
+        if let Some(&coord) = coords.last() {
+            assert_eq!(coord, orig_coords[orig_coords.len() - 1]);
+        }
+        let coords: Vec<_> = traverse.iter_config(Config::new().exclude_end()).collect();
+        assert_eq!(coords.len(), traverse.num_steps().max(1) - 1);
+        if let Some(&coord) = coords.first() {
+            assert_eq!(coord, orig_coords[0]);
+        }
+        if let Some(&coord) = coords.last() {
+            assert_eq!(coord, orig_coords[orig_coords.len() - 2]);
         }
     }
 
