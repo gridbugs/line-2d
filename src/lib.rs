@@ -31,6 +31,14 @@ pub trait TraverseTrait: Clone + Eq + private::Sealed {
 pub trait StepsTrait: Clone + Eq + private::Sealed {
     fn prev(&mut self) -> Coord;
     fn next(&mut self) -> Coord;
+    fn prev_copy(&self) -> (Coord, Self) {
+        let mut s = self.clone();
+        (s.prev(), s)
+    }
+    fn next_copy(&self) -> (Coord, Self) {
+        let mut s = self.clone();
+        (s.next(), s)
+    }
 }
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -127,6 +135,18 @@ impl LineSegment {
     pub fn num_steps_cardinal(&self) -> usize {
         let delta = self.delta();
         delta.x.abs() as usize + delta.y.abs() as usize + 1
+    }
+    pub fn reverse(&self) -> Self {
+        Self {
+            start: self.end,
+            end: self.start,
+        }
+    }
+    pub fn try_infinite(&self) -> Result<InfiniteLineSegment, ZeroLengthDelta> {
+        InfiniteLineSegment::try_new(self.start, self.delta())
+    }
+    pub fn infinite(&self) -> InfiniteLineSegment {
+        self.try_infinite().unwrap()
     }
 }
 
@@ -330,6 +350,213 @@ impl IntoIterator for LineSegment {
     }
 }
 
+impl IntoIterator for Traverse {
+    type Item = Coord;
+    type IntoIter = LineSegmentIter;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl IntoIterator for TraverseCardinal {
+    type Item = Coord;
+    type IntoIter = LineSegmentIterCardinal;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+pub struct InfiniteConfig {
+    exclude_start: bool,
+}
+
+pub trait InfiniteTraverseTrait: Clone + Eq + private::Sealed {
+    type Steps: StepsTrait;
+    type Iter: Iterator<Item = Coord>;
+    fn steps(&self) -> Self::Steps;
+    fn iter(&self) -> Self::Iter;
+    fn iter_config(&self, config: InfiniteConfig) -> Self::Iter;
+    fn start(&self) -> Coord;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct InfiniteLineSegment {
+    line_segment: LineSegment,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ZeroLengthDelta;
+
+impl InfiniteLineSegment {
+    pub fn try_new(start: Coord, delta: Coord) -> Result<Self, ZeroLengthDelta> {
+        if delta == Coord::new(0, 0) {
+            Err(ZeroLengthDelta)
+        } else {
+            Ok(Self {
+                line_segment: LineSegment::new(start, start + delta),
+            })
+        }
+    }
+    pub fn new(start: Coord, delta: Coord) -> Self {
+        Self::try_new(start, delta).unwrap()
+    }
+    pub fn start(&self) -> Coord {
+        self.line_segment.start
+    }
+    fn delta(&self) -> Coord {
+        self.line_segment.delta()
+    }
+    pub fn reverse(&self) -> Self {
+        let start = self.start();
+        let end = start - self.delta();
+        Self {
+            line_segment: LineSegment::new(start, end),
+        }
+    }
+    pub fn traverse(&self) -> InfiniteTraverse {
+        InfiniteTraverse {
+            line_segment: *self,
+        }
+    }
+    pub fn traverse_cardinal(&self) -> InfiniteTraverseCardinal {
+        InfiniteTraverseCardinal {
+            line_segment: *self,
+        }
+    }
+    pub fn iter(&self) -> InfiniteLineSegmentIter {
+        GeneralInfiniteLineSegmentIter::new(self.traverse())
+    }
+    pub fn iter_config(&self, config: InfiniteConfig) -> InfiniteLineSegmentIter {
+        if config.exclude_start {
+            GeneralInfiniteLineSegmentIter::new_exclude_start(self.traverse())
+        } else {
+            self.iter()
+        }
+    }
+    pub fn iter_cardinal(&self) -> InfiniteLineSegmentIterCardinal {
+        GeneralInfiniteLineSegmentIter::new(self.traverse_cardinal())
+    }
+    pub fn iter_cardinal_config(&self, config: InfiniteConfig) -> InfiniteLineSegmentIterCardinal {
+        if config.exclude_start {
+            GeneralInfiniteLineSegmentIter::new_exclude_start(self.traverse_cardinal())
+        } else {
+            self.iter_cardinal()
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct GeneralInfiniteLineSegmentIter<S: StepsTrait> {
+    steps: S,
+    current_coord: Coord,
+}
+
+pub type InfiniteLineSegmentIter = GeneralInfiniteLineSegmentIter<Steps>;
+pub type InfiniteLineSegmentIterCardinal = GeneralInfiniteLineSegmentIter<StepsCardinal>;
+
+impl<S: StepsTrait> Iterator for GeneralInfiniteLineSegmentIter<S> {
+    type Item = Coord;
+    fn next(&mut self) -> Option<Self::Item> {
+        let (delta, next_steps) = self.steps.next_copy();
+        if let Some(next_coord) = self.current_coord.checked_add(delta) {
+            self.current_coord = next_coord;
+            self.steps = next_steps;
+            Some(next_coord)
+        } else {
+            None
+        }
+    }
+}
+
+impl<S: StepsTrait> GeneralInfiniteLineSegmentIter<S> {
+    fn new<T: InfiniteTraverseTrait<Steps = S>>(traverse: T) -> Self {
+        let mut steps = traverse.steps();
+        let backwards_step = steps.prev();
+        let current_coord = traverse.start() + backwards_step;
+        Self {
+            steps,
+            current_coord,
+        }
+    }
+
+    fn new_exclude_start<T: InfiniteTraverseTrait<Steps = S>>(traverse: T) -> Self {
+        let steps = traverse.steps();
+        let current_coord = traverse.start();
+        Self {
+            steps,
+            current_coord,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct InfiniteTraverse {
+    line_segment: InfiniteLineSegment,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct InfiniteTraverseCardinal {
+    line_segment: InfiniteLineSegment,
+}
+
+impl InfiniteTraverseTrait for InfiniteTraverse {
+    type Steps = Steps;
+    type Iter = InfiniteLineSegmentIter;
+    fn steps(&self) -> Self::Steps {
+        Steps::new(self.line_segment.delta())
+    }
+    fn iter(&self) -> Self::Iter {
+        self.line_segment.iter()
+    }
+    fn iter_config(&self, config: InfiniteConfig) -> Self::Iter {
+        self.line_segment.iter_config(config)
+    }
+    fn start(&self) -> Coord {
+        self.line_segment.start()
+    }
+}
+
+impl InfiniteTraverseTrait for InfiniteTraverseCardinal {
+    type Steps = StepsCardinal;
+    type Iter = InfiniteLineSegmentIterCardinal;
+    fn steps(&self) -> Self::Steps {
+        StepsCardinal::new(self.line_segment.delta())
+    }
+    fn iter(&self) -> Self::Iter {
+        self.line_segment.iter_cardinal()
+    }
+    fn iter_config(&self, config: InfiniteConfig) -> Self::Iter {
+        self.line_segment.iter_cardinal_config(config)
+    }
+    fn start(&self) -> Coord {
+        self.line_segment.start()
+    }
+}
+
+impl IntoIterator for InfiniteLineSegment {
+    type Item = Coord;
+    type IntoIter = InfiniteLineSegmentIter;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl IntoIterator for InfiniteTraverse {
+    type Item = Coord;
+    type IntoIter = InfiniteLineSegmentIter;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl IntoIterator for InfiniteTraverseCardinal {
+    type Item = Coord;
+    type IntoIter = InfiniteLineSegmentIterCardinal;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 mod private {
     pub trait Sealed {}
 
@@ -337,6 +564,8 @@ mod private {
     impl Sealed for super::StepsCardinal {}
     impl Sealed for super::Traverse {}
     impl Sealed for super::TraverseCardinal {}
+    impl Sealed for super::InfiniteTraverse {}
+    impl Sealed for super::InfiniteTraverseCardinal {}
 }
 
 #[cfg(test)]
@@ -398,9 +627,22 @@ mod test {
         }
     }
 
+    fn compare_finite_with_infinite<F: TraverseTrait, I: InfiniteTraverseTrait>(f: F, i: I) {
+        f.iter().zip(i.iter()).for_each(|(f, i)| {
+            assert_eq!(f, i);
+        });
+    }
+
     fn test_properties(line_segment: LineSegment) {
         test_properties_gen(line_segment.traverse());
         test_properties_gen(line_segment.traverse_cardinal());
+        if let Ok(infinite) = line_segment.try_infinite() {
+            compare_finite_with_infinite(line_segment.traverse(), infinite.traverse());
+            compare_finite_with_infinite(
+                line_segment.traverse_cardinal(),
+                infinite.traverse_cardinal(),
+            );
+        }
     }
 
     fn rand_int<R: Rng>(rng: &mut R) -> i32 {
