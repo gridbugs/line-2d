@@ -1,3 +1,7 @@
+#[cfg(feature = "serialize")]
+#[macro_use]
+extern crate serde;
+
 extern crate coord_2d;
 use coord_2d::Axis;
 pub use coord_2d::Coord;
@@ -41,6 +45,7 @@ pub trait StepsTrait: Clone + Eq + private::Sealed {
     }
 }
 
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Default, Debug, Clone, Copy)]
 pub struct Config {
     pub exclude_start: bool,
@@ -77,17 +82,20 @@ impl Config {
     }
 }
 
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LineSegment {
     pub start: Coord,
     pub end: Coord,
 }
 
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Traverse {
     pub line_segment: LineSegment,
 }
 
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TraverseCardinal {
     pub line_segment: LineSegment,
@@ -190,6 +198,7 @@ impl TraverseTrait for TraverseCardinal {
     }
 }
 
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Steps {
     major_x: i8,
@@ -265,6 +274,7 @@ impl StepsTrait for Steps {
     }
 }
 
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StepsCardinal(Steps);
 
@@ -366,6 +376,7 @@ impl IntoIterator for TraverseCardinal {
     }
 }
 
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 pub struct InfiniteConfig {
     exclude_start: bool,
 }
@@ -379,11 +390,13 @@ pub trait InfiniteTraverseTrait: Clone + Eq + private::Sealed {
     fn start(&self) -> Coord;
 }
 
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InfiniteLineSegment {
     line_segment: LineSegment,
 }
 
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy)]
 pub struct ZeroLengthDelta;
 
@@ -445,6 +458,7 @@ impl InfiniteLineSegment {
     }
 }
 
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy)]
 pub struct GeneralInfiniteLineSegmentIter<S: StepsTrait> {
     steps: S,
@@ -489,11 +503,13 @@ impl<S: StepsTrait> GeneralInfiniteLineSegmentIter<S> {
     }
 }
 
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InfiniteTraverse {
     line_segment: InfiniteLineSegment,
 }
 
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct InfiniteTraverseCardinal {
     line_segment: InfiniteLineSegment,
