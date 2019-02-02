@@ -156,16 +156,17 @@ impl TraverseTrait for TraverseCardinal {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Steps {
-    major_axis: Axis,
-    major_sign: i8,
-    minor_sign: i8,
+    major_x: i8,
+    major_y: i8,
+    minor_x: i8,
+    minor_y: i8,
     accumulator: i64,
     major_delta_abs: u32,
     minor_delta_abs: u32,
 }
 
 impl Steps {
-    pub fn new(delta: Coord) -> Self {
+    fn new_common<F: Fn(i8, i8, Axis) -> (Coord, Coord)>(delta: Coord, f: F) -> Self {
         let (major_axis, minor_axis) = if delta.x.abs() > delta.y.abs() {
             (Axis::X, Axis::Y)
         } else {
@@ -173,7 +174,9 @@ impl Steps {
         };
         let major_sign = if delta.get(major_axis) < 0 { -1 } else { 1 };
         let minor_sign = if delta.get(minor_axis) < 0 { -1 } else { 1 };
+        let (major_coord, minor_coord) = f(major_sign, minor_sign, major_axis);
         let (major_delta_abs, minor_delta_abs) = if delta == Coord::new(0, 0) {
+            // this prevents traversal from looping forever
             (1, 1)
         } else {
             (
@@ -182,14 +185,26 @@ impl Steps {
             )
         };
         let accumulator = 0;
+        let major_x = major_coord.x as i8;
+        let major_y = major_coord.y as i8;
+        let minor_x = minor_coord.x as i8;
+        let minor_y = minor_coord.y as i8;
         Self {
-            major_axis,
-            major_sign,
-            minor_sign,
+            major_x,
+            major_y,
+            minor_x,
+            minor_y,
             accumulator,
             major_delta_abs,
             minor_delta_abs,
         }
+    }
+    pub fn new(delta: Coord) -> Self {
+        Self::new_common(delta, |major_sign, minor_sign, major_axis| {
+            let major_coord = Coord::new_axis(major_sign as i32, 0, major_axis);
+            let minor_coord = Coord::new_axis(major_sign as i32, minor_sign as i32, major_axis);
+            (major_coord, minor_coord)
+        })
     }
 }
 
@@ -198,26 +213,18 @@ impl StepsTrait for Steps {
         self.accumulator -= self.minor_delta_abs as i64;
         if self.accumulator <= (self.major_delta_abs as i64 / 2) - self.major_delta_abs as i64 {
             self.accumulator += self.major_delta_abs as i64;
-            Coord::new_axis(
-                -self.major_sign as i32,
-                -self.minor_sign as i32,
-                self.major_axis,
-            )
+            Coord::new(-self.minor_x as i32, -self.minor_y as i32)
         } else {
-            Coord::new_axis(-self.major_sign as i32, 0, self.major_axis)
+            Coord::new(-self.major_x as i32, -self.major_y as i32)
         }
     }
     fn next(&mut self) -> Coord {
         self.accumulator += self.minor_delta_abs as i64;
         if self.accumulator > self.major_delta_abs as i64 / 2 {
             self.accumulator -= self.major_delta_abs as i64;
-            Coord::new_axis(
-                self.major_sign as i32,
-                self.minor_sign as i32,
-                self.major_axis,
-            )
+            Coord::new(self.minor_x as i32, self.minor_y as i32)
         } else {
-            Coord::new_axis(self.major_sign as i32, 0, self.major_axis)
+            Coord::new(self.major_x as i32, self.major_y as i32)
         }
     }
 }
@@ -227,7 +234,12 @@ pub struct StepsCardinal(Steps);
 
 impl StepsCardinal {
     fn new(delta: Coord) -> Self {
-        StepsCardinal(Steps::new(delta))
+        let steps = Steps::new_common(delta, |major_sign, minor_sign, major_axis| {
+            let major_coord = Coord::new_axis(major_sign as i32, 0, major_axis);
+            let minor_coord = Coord::new_axis(0, minor_sign as i32, major_axis);
+            (major_coord, minor_coord)
+        });
+        StepsCardinal(steps)
     }
 }
 
@@ -240,18 +252,18 @@ impl StepsTrait for StepsCardinal {
                 - self.0.minor_delta_abs as i64
         {
             self.0.accumulator += self.0.major_delta_abs as i64 + self.0.minor_delta_abs as i64;;
-            Coord::new_axis(0, -self.0.minor_sign as i32, self.0.major_axis)
+            Coord::new(-self.0.minor_x as i32, -self.0.minor_y as i32)
         } else {
-            Coord::new_axis(-self.0.major_sign as i32, 0, self.0.major_axis)
+            Coord::new(-self.0.major_x as i32, -self.0.major_y as i32)
         }
     }
     fn next(&mut self) -> Coord {
         self.0.accumulator += self.0.minor_delta_abs as i64;
         if self.0.accumulator > self.0.major_delta_abs as i64 / 2 {
             self.0.accumulator -= self.0.major_delta_abs as i64 + self.0.minor_delta_abs as i64;
-            Coord::new_axis(0, self.0.minor_sign as i32, self.0.major_axis)
+            Coord::new(self.0.minor_x as i32, self.0.minor_y as i32)
         } else {
-            Coord::new_axis(self.0.major_sign as i32, 0, self.0.major_axis)
+            Coord::new(self.0.major_x as i32, self.0.major_y as i32)
         }
     }
 }
