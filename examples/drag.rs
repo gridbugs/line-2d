@@ -1,7 +1,7 @@
 extern crate line_2d;
 extern crate prototty_unix;
 
-use line_2d::Coord;
+use line_2d::{Coord, LineSegment};
 use prototty_unix::prototty_input::{inputs, Input, MouseButton};
 use prototty_unix::prototty_render::{colours, View, ViewCell, ViewGrid};
 use prototty_unix::Context;
@@ -36,14 +36,14 @@ impl View<App> for AppView {
                 if app.cardinal_only {
                     draw_line(
                         grid,
-                        line_2d::line_segment(last_clicked_coord, coord),
+                        LineSegment::new(last_clicked_coord, coord),
                         offset,
                         depth,
                     );
                 } else {
                     draw_line(
                         grid,
-                        line_2d::line_segment(last_clicked_coord, coord),
+                        LineSegment::new(last_clicked_coord, coord),
                         offset,
                         depth,
                     );

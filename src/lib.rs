@@ -2,18 +2,34 @@ extern crate coord_2d;
 use coord_2d::Axis;
 pub use coord_2d::Coord;
 
+#[derive(Debug, Clone, Copy)]
+pub struct GeneralLineSegmentIter<S: StepsTrait> {
+    steps: S,
+    current_coord: Coord,
+    remaining: usize,
+}
+
+pub type LineSegmentIter = GeneralLineSegmentIter<Steps>;
+pub type LineSegmentIterCardinal = GeneralLineSegmentIter<StepsCardinal>;
+
+pub trait TraverseTrait: Clone + Eq + private::Sealed {
+    type Steps: StepsTrait;
+    type Iter: Iterator<Item = Coord>;
+    fn num_steps(&self) -> usize;
+    fn steps(&self) -> Self::Steps;
+    fn iter(&self) -> Self::Iter;
+    fn line_segment(&self) -> LineSegment;
+    fn start(&self) -> Coord {
+        self.line_segment().start
+    }
+    fn end(&self) -> Coord {
+        self.line_segment().end
+    }
+}
+
 pub trait StepsTrait: Clone + Eq + private::Sealed {
     fn prev(&mut self) -> Coord;
     fn next(&mut self) -> Coord;
-}
-
-pub trait LineSegmentTrait: private::Sealed {
-    type Steps: StepsTrait;
-    fn num_steps(&self) -> usize;
-    fn steps(&self) -> Self::Steps;
-    fn iter(&self) -> LineSegmentIter<Self::Steps>;
-    fn start(&self) -> Coord;
-    fn end(&self) -> Coord;
 }
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -55,18 +71,38 @@ pub struct LineSegment {
     pub end: Coord,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Traverse {
+    pub line_segment: LineSegment,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TraverseCardinal {
+    pub line_segment: LineSegment,
+}
+
 impl LineSegment {
     pub fn new(start: Coord, end: Coord) -> Self {
         Self { start, end }
     }
+    pub fn traverse(&self) -> Traverse {
+        Traverse {
+            line_segment: *self,
+        }
+    }
+    pub fn traverse_cardinal(&self) -> TraverseCardinal {
+        TraverseCardinal {
+            line_segment: *self,
+        }
+    }
     pub fn delta(&self) -> Coord {
         self.end - self.start
     }
-    pub fn iter(&self) -> LineSegmentIter<Steps> {
-        LineSegmentIter::new(*self)
+    pub fn iter(&self) -> LineSegmentIter {
+        GeneralLineSegmentIter::new(self.traverse())
     }
-    pub fn iter_cardinal(&self) -> LineSegmentIter<StepsCardinal> {
-        LineSegmentIter::new(LineSegmentCardinal(*self))
+    pub fn iter_cardinal(&self) -> LineSegmentIterCardinal {
+        GeneralLineSegmentIter::new(self.traverse_cardinal())
     }
     pub fn steps(&self) -> Steps {
         Steps::new(self.delta())
@@ -82,58 +118,39 @@ impl LineSegment {
         let delta = self.delta();
         delta.x.abs() as usize + delta.y.abs() as usize + 1
     }
-    pub fn cardinal(&self) -> LineSegmentCardinal {
-        LineSegmentCardinal(*self)
-    }
 }
 
-impl LineSegmentTrait for LineSegment {
+impl TraverseTrait for Traverse {
     type Steps = Steps;
+    type Iter = LineSegmentIter;
     fn num_steps(&self) -> usize {
-        LineSegment::num_steps(self)
+        self.line_segment.num_steps()
     }
     fn steps(&self) -> Self::Steps {
-        LineSegment::steps(self)
+        self.line_segment.steps()
     }
-    fn iter(&self) -> LineSegmentIter<Self::Steps> {
-        LineSegment::iter(self)
+    fn iter(&self) -> Self::Iter {
+        self.line_segment.iter()
     }
-    fn start(&self) -> Coord {
-        self.start
-    }
-    fn end(&self) -> Coord {
-        self.end
+    fn line_segment(&self) -> LineSegment {
+        self.line_segment
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct LineSegmentCardinal(LineSegment);
-
-impl LineSegmentCardinal {
-    pub fn new(start: Coord, end: Coord) -> Self {
-        LineSegmentCardinal(LineSegment::new(start, end))
-    }
-    pub fn line_segment(&self) -> LineSegment {
-        self.0
-    }
-}
-
-impl LineSegmentTrait for LineSegmentCardinal {
+impl TraverseTrait for TraverseCardinal {
     type Steps = StepsCardinal;
+    type Iter = LineSegmentIterCardinal;
     fn num_steps(&self) -> usize {
-        LineSegment::num_steps_cardinal(&self.0)
+        self.line_segment.num_steps_cardinal()
     }
     fn steps(&self) -> Self::Steps {
-        LineSegment::steps_cardinal(&self.0)
+        self.line_segment.steps_cardinal()
     }
-    fn iter(&self) -> LineSegmentIter<Self::Steps> {
-        LineSegment::iter_cardinal(&self.0)
+    fn iter(&self) -> LineSegmentIterCardinal {
+        self.line_segment.iter_cardinal()
     }
-    fn start(&self) -> Coord {
-        self.0.start
-    }
-    fn end(&self) -> Coord {
-        self.0.end
+    fn line_segment(&self) -> LineSegment {
+        self.line_segment
     }
 }
 
@@ -239,19 +256,12 @@ impl StepsTrait for StepsCardinal {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct LineSegmentIter<S: StepsTrait> {
-    steps: S,
-    current_coord: Coord,
-    remaining: usize,
-}
-
-impl<S: StepsTrait> LineSegmentIter<S> {
-    fn new<L: LineSegmentTrait<Steps = S>>(line_segment: L) -> Self {
-        let mut steps = line_segment.steps();
+impl<S: StepsTrait> GeneralLineSegmentIter<S> {
+    fn new<T: TraverseTrait<Steps = S>>(traverse: T) -> Self {
+        let mut steps = traverse.steps();
         let backwards_step = steps.prev();
-        let current_coord = line_segment.start() + backwards_step;
-        let remaining = line_segment.num_steps();
+        let current_coord = traverse.start() + backwards_step;
+        let remaining = traverse.num_steps();
         Self {
             steps,
             current_coord,
@@ -260,7 +270,7 @@ impl<S: StepsTrait> LineSegmentIter<S> {
     }
 }
 
-impl<S: StepsTrait> Iterator for LineSegmentIter<S> {
+impl<S: StepsTrait> Iterator for GeneralLineSegmentIter<S> {
     type Item = Coord;
     fn next(&mut self) -> Option<Self::Item> {
         if self.remaining == 0 {
@@ -275,35 +285,19 @@ impl<S: StepsTrait> Iterator for LineSegmentIter<S> {
 
 impl IntoIterator for LineSegment {
     type Item = Coord;
-    type IntoIter = LineSegmentIter<Steps>;
+    type IntoIter = LineSegmentIter;
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
-}
-
-impl IntoIterator for LineSegmentCardinal {
-    type Item = Coord;
-    type IntoIter = LineSegmentIter<StepsCardinal>;
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-pub fn line_segment(start: Coord, end: Coord) -> LineSegment {
-    LineSegment::new(start, end)
-}
-
-pub fn line_segment_cardinal(start: Coord, end: Coord) -> LineSegmentCardinal {
-    LineSegmentCardinal::new(start, end)
 }
 
 mod private {
     pub trait Sealed {}
 
-    impl Sealed for super::LineSegment {}
-    impl Sealed for super::LineSegmentCardinal {}
     impl Sealed for super::Steps {}
     impl Sealed for super::StepsCardinal {}
+    impl Sealed for super::Traverse {}
+    impl Sealed for super::TraverseCardinal {}
 }
 
 #[cfg(test)]
@@ -313,17 +307,17 @@ mod test {
     use self::rand::{Rng, SeedableRng};
     use super::*;
 
-    fn test_properties_gen<L>(line_segment: L)
+    fn test_properties_gen<T>(traverse: T)
     where
-        L: LineSegmentTrait + ::std::fmt::Debug,
-        L::Steps: ::std::fmt::Debug,
+        T: TraverseTrait + ::std::fmt::Debug,
+        T::Steps: ::std::fmt::Debug,
     {
-        let coords: Vec<_> = line_segment.iter().collect();
-        assert_eq!(coords.len(), line_segment.num_steps());
-        assert_eq!(*coords.first().unwrap(), line_segment.start());
-        assert_eq!(*coords.last().unwrap(), line_segment.end());
-        let mut steps = line_segment.steps();
-        for _ in 0..line_segment.num_steps() {
+        let coords: Vec<_> = traverse.iter().collect();
+        assert_eq!(coords.len(), traverse.num_steps());
+        assert_eq!(*coords.first().unwrap(), traverse.start());
+        assert_eq!(*coords.last().unwrap(), traverse.end());
+        let mut steps = traverse.steps();
+        for _ in 0..traverse.num_steps() {
             let before = steps.clone();
             steps.next();
             let mut after = steps.clone();
@@ -331,14 +325,14 @@ mod test {
             assert_eq!(
                 before, after,
                 "\n{:#?}\n{:#?}\n{:#?}",
-                before, after, line_segment
+                before, after, traverse
             );
         }
     }
 
     fn test_properties(line_segment: LineSegment) {
-        test_properties_gen(line_segment);
-        test_properties_gen(line_segment.cardinal());
+        test_properties_gen(line_segment.traverse());
+        test_properties_gen(line_segment.traverse_cardinal());
     }
 
     fn rand_int<R: Rng>(rng: &mut R) -> i32 {
@@ -355,7 +349,7 @@ mod test {
     }
 
     #[test]
-    fn iterator_reaches_end() {
+    fn all() {
         test_properties(LineSegment::new(Coord::new(0, 0), Coord::new(0, 0)));
         test_properties(LineSegment::new(Coord::new(0, 0), Coord::new(1, 1)));
         test_properties(LineSegment::new(Coord::new(0, 0), Coord::new(1, 0)));
