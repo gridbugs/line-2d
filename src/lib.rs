@@ -713,4 +713,24 @@ mod test {
             test_properties(rand_line_segment(&mut rng));
         }
     }
+
+    #[test]
+    fn infinite_traverse() {
+        let line = LineSegment::new(Coord::new(0, 0), Coord::new(1, 0));
+        let first_4 = line
+            .infinite()
+            .traverse()
+            .iter()
+            .take(4)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            &first_4,
+            &[
+                Coord::new(0, 0),
+                Coord::new(1, 0),
+                Coord::new(2, 0),
+                Coord::new(3, 0),
+            ]
+        );
+    }
 }
