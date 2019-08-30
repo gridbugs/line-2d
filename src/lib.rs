@@ -304,6 +304,7 @@ impl Config {
     }
 }
 
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy)]
 pub struct GeneralLineSegmentIter<S: StepsTrait> {
     steps: S,
