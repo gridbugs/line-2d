@@ -606,7 +606,9 @@ mod private {
 
 #[cfg(test)]
 mod test {
+    extern crate grid_2d;
     extern crate rand;
+    use self::grid_2d::{Grid, Size};
     use self::rand::rngs::StdRng;
     use self::rand::{Rng, SeedableRng};
     use super::*;
@@ -731,6 +733,109 @@ mod test {
                 Coord::new(1, 0),
                 Coord::new(2, 0),
                 Coord::new(3, 0),
+            ]
+        );
+    }
+
+    fn render_iter<I>(iter: I) -> Vec<String>
+    where
+        I: Iterator<Item = Coord>,
+    {
+        let mut grid = Grid::new_clone(Size::new(10, 10), '.');
+        for coord in iter {
+            *grid.get_checked_mut(coord) = '#';
+        }
+        let mut v = Vec::new();
+        for row in grid.rows() {
+            let mut s = String::new();
+            for &cell in row {
+                s.push(cell);
+            }
+            v.push(s);
+        }
+        println!("{:?}", v);
+        v
+    }
+
+    #[test]
+    fn examples() {
+        assert_eq!(
+            render_iter(LineSegment::new(Coord::new(2, 3), Coord::new(8, 6)).iter()),
+            &[
+                "..........",
+                "..........",
+                "..........",
+                "..##......",
+                "....##....",
+                "......##..",
+                "........#.",
+                "..........",
+                "..........",
+                ".........."
+            ]
+        );
+        assert_eq!(
+            render_iter(
+                LineSegment::new(Coord::new(2, 3), Coord::new(8, 6))
+                    .iter_config(Config::new().exclude_end().exclude_start())
+            ),
+            &[
+                "..........",
+                "..........",
+                "..........",
+                "...#......",
+                "....##....",
+                "......##..",
+                "..........",
+                "..........",
+                "..........",
+                ".........."
+            ]
+        );
+
+        assert_eq!(
+            render_iter(LineSegment::new(Coord::new(2, 3), Coord::new(8, 6)).iter_cardinal()),
+            &[
+                "..........",
+                "..........",
+                "..........",
+                "..##......",
+                "...###....",
+                ".....###..",
+                ".......##.",
+                "..........",
+                "..........",
+                ".........."
+            ]
+        );
+        assert_eq!(
+            render_iter(LineSegment::new(Coord::new(6, 2), Coord::new(6, 7)).iter()),
+            &[
+                "..........",
+                "..........",
+                "......#...",
+                "......#...",
+                "......#...",
+                "......#...",
+                "......#...",
+                "......#...",
+                "..........",
+                ".........."
+            ]
+        );
+        assert_eq!(
+            render_iter(LineSegment::new(Coord::new(3, 7), Coord::new(8, 7)).iter()),
+            &[
+                "..........",
+                "..........",
+                "..........",
+                "..........",
+                "..........",
+                "..........",
+                "..........",
+                "...######.",
+                "..........",
+                ".........."
             ]
         );
     }
