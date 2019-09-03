@@ -1,10 +1,11 @@
 #[cfg(feature = "serialize")]
 #[macro_use]
 extern crate serde;
-
 extern crate coord_2d;
+extern crate direction;
 use coord_2d::Axis;
 pub use coord_2d::Coord;
+pub use direction::Direction;
 
 pub trait StepsTrait: Clone + Eq + private::Sealed {
     fn prev(&mut self) -> Coord;
@@ -22,10 +23,8 @@ pub trait StepsTrait: Clone + Eq + private::Sealed {
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Steps {
-    major_x: i8,
-    major_y: i8,
-    minor_x: i8,
-    minor_y: i8,
+    major: Direction,
+    minor: Direction,
     accumulator: i64,
     major_delta_abs: u32,
     minor_delta_abs: u32,
@@ -51,15 +50,27 @@ impl Steps {
             )
         };
         let accumulator = 0;
-        let major_x = major_coord.x as i8;
-        let major_y = major_coord.y as i8;
-        let minor_x = minor_coord.x as i8;
-        let minor_y = minor_coord.y as i8;
+        let major = match (major_coord.x, major_coord.y) {
+            (0, 1) => Direction::South,
+            (0, -1) => Direction::North,
+            (1, 0) => Direction::East,
+            (-1, 0) => Direction::West,
+            _ => unreachable!(),
+        };
+        let minor = match (minor_coord.x, minor_coord.y) {
+            (0, 1) => Direction::South,
+            (0, -1) => Direction::North,
+            (1, 0) => Direction::East,
+            (-1, 0) => Direction::West,
+            (1, 1) => Direction::SouthEast,
+            (-1, 1) => Direction::SouthWest,
+            (1, -1) => Direction::NorthEast,
+            (-1, -1) => Direction::NorthWest,
+            _ => unreachable!(),
+        };
         Self {
-            major_x,
-            major_y,
-            minor_x,
-            minor_y,
+            major,
+            minor,
             accumulator,
             major_delta_abs,
             minor_delta_abs,
@@ -79,18 +90,18 @@ impl StepsTrait for Steps {
         self.accumulator -= self.minor_delta_abs as i64;
         if self.accumulator <= (self.major_delta_abs as i64 / 2) - self.major_delta_abs as i64 {
             self.accumulator += self.major_delta_abs as i64;
-            Coord::new(-self.minor_x as i32, -self.minor_y as i32)
+            self.minor.opposite().coord()
         } else {
-            Coord::new(-self.major_x as i32, -self.major_y as i32)
+            self.major.opposite().coord()
         }
     }
     fn next(&mut self) -> Coord {
         self.accumulator += self.minor_delta_abs as i64;
         if self.accumulator > self.major_delta_abs as i64 / 2 {
             self.accumulator -= self.major_delta_abs as i64;
-            Coord::new(self.minor_x as i32, self.minor_y as i32)
+            self.minor.coord()
         } else {
-            Coord::new(self.major_x as i32, self.major_y as i32)
+            self.major.coord()
         }
     }
 }
@@ -119,18 +130,18 @@ impl StepsTrait for StepsCardinal {
                 - self.0.minor_delta_abs as i64
         {
             self.0.accumulator += self.0.major_delta_abs as i64 + self.0.minor_delta_abs as i64;;
-            Coord::new(-self.0.minor_x as i32, -self.0.minor_y as i32)
+            self.0.minor.opposite().coord()
         } else {
-            Coord::new(-self.0.major_x as i32, -self.0.major_y as i32)
+            self.0.major.opposite().coord()
         }
     }
     fn next(&mut self) -> Coord {
         self.0.accumulator += self.0.minor_delta_abs as i64;
         if self.0.accumulator > self.0.major_delta_abs as i64 / 2 {
             self.0.accumulator -= self.0.major_delta_abs as i64 + self.0.minor_delta_abs as i64;
-            Coord::new(self.0.minor_x as i32, self.0.minor_y as i32)
+            self.0.minor.coord()
         } else {
-            Coord::new(self.0.major_x as i32, self.0.major_y as i32)
+            self.0.major.coord()
         }
     }
 }
