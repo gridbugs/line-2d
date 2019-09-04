@@ -3,26 +3,13 @@
 extern crate serde;
 extern crate coord_2d;
 extern crate direction;
-use coord_2d::Axis;
 pub use coord_2d::Coord;
-pub use direction::Direction;
-
-pub trait StepsTrait: Clone + Eq + private::Sealed {
-    fn prev(&mut self) -> Coord;
-    fn next(&mut self) -> Coord;
-    fn prev_copy(&self) -> (Coord, Self) {
-        let mut s = self.clone();
-        (s.prev(), s)
-    }
-    fn next_copy(&self) -> (Coord, Self) {
-        let mut s = self.clone();
-        (s.next(), s)
-    }
-}
+pub use direction::{CardinalDirection, Direction, OrdinalDirection};
+use std::iter::Take;
 
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Steps {
+struct StepsCommon {
     major: Direction,
     minor: Direction,
     accumulator: i64,
@@ -30,99 +17,133 @@ pub struct Steps {
     minor_delta_abs: u32,
 }
 
-impl Steps {
-    fn new_common<F: Fn(i8, i8, Axis) -> (Coord, Coord)>(delta: Coord, f: F) -> Self {
-        let (major_axis, minor_axis) = if delta.x.abs() > delta.y.abs() {
-            (Axis::X, Axis::Y)
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct Steps(StepsCommon);
+
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct CardinalSteps(StepsCommon);
+
+struct StepsDesc {
+    major: CardinalDirection,
+    minor: CardinalDirection,
+    major_delta_abs: u32,
+    minor_delta_abs: u32,
+}
+
+impl StepsDesc {
+    fn new(delta: Coord) -> Self {
+        let delta_x_abs = delta.x.abs() as u32;
+        let delta_y_abs = delta.y.abs() as u32;
+        if delta_x_abs > delta_y_abs {
+            let major = if delta.x > 0 {
+                CardinalDirection::East
+            } else {
+                CardinalDirection::West
+            };
+            let minor = if delta.y > 0 {
+                CardinalDirection::South
+            } else {
+                CardinalDirection::North
+            };
+            Self {
+                major,
+                minor,
+                major_delta_abs: delta_x_abs,
+                minor_delta_abs: delta_y_abs,
+            }
         } else {
-            (Axis::Y, Axis::X)
-        };
-        let major_sign = if delta.get(major_axis) < 0 { -1 } else { 1 };
-        let minor_sign = if delta.get(minor_axis) < 0 { -1 } else { 1 };
-        let (major_coord, minor_coord) = f(major_sign, minor_sign, major_axis);
-        let (major_delta_abs, minor_delta_abs) = if delta == Coord::new(0, 0) {
-            // this prevents traversal from looping forever
-            (1, 1)
-        } else {
-            (
-                delta.get(major_axis).abs() as u32,
-                delta.get(minor_axis).abs() as u32,
-            )
-        };
-        let accumulator = 0;
-        let major = match (major_coord.x, major_coord.y) {
-            (0, 1) => Direction::South,
-            (0, -1) => Direction::North,
-            (1, 0) => Direction::East,
-            (-1, 0) => Direction::West,
-            _ => unreachable!(),
-        };
-        let minor = match (minor_coord.x, minor_coord.y) {
-            (0, 1) => Direction::South,
-            (0, -1) => Direction::North,
-            (1, 0) => Direction::East,
-            (-1, 0) => Direction::West,
-            (1, 1) => Direction::SouthEast,
-            (-1, 1) => Direction::SouthWest,
-            (1, -1) => Direction::NorthEast,
-            (-1, -1) => Direction::NorthWest,
-            _ => unreachable!(),
-        };
-        Self {
-            major,
-            minor,
-            accumulator,
-            major_delta_abs,
-            minor_delta_abs,
+            let major = if delta.y > 0 {
+                CardinalDirection::South
+            } else {
+                CardinalDirection::North
+            };
+            let minor = if delta.x > 0 {
+                CardinalDirection::East
+            } else {
+                CardinalDirection::West
+            };
+            Self {
+                major,
+                minor,
+                major_delta_abs: delta_y_abs,
+                minor_delta_abs: delta_x_abs,
+            }
         }
     }
-    pub fn new(delta: Coord) -> Self {
-        Self::new_common(delta, |major_sign, minor_sign, major_axis| {
-            let major_coord = Coord::new_axis(major_sign as i32, 0, major_axis);
-            let minor_coord = Coord::new_axis(major_sign as i32, minor_sign as i32, major_axis);
-            (major_coord, minor_coord)
+    fn into_steps(self) -> Steps {
+        let Self {
+            major,
+            minor,
+            major_delta_abs,
+            minor_delta_abs,
+        } = self;
+        Steps(StepsCommon {
+            major: major.direction(),
+            minor: OrdinalDirection::from_cardinals(major, minor)
+                .unwrap()
+                .direction(),
+            accumulator: 0,
+            major_delta_abs,
+            minor_delta_abs,
+        })
+    }
+    fn into_cardinal_steps(self) -> CardinalSteps {
+        let Self {
+            major,
+            minor,
+            major_delta_abs,
+            minor_delta_abs,
+        } = self;
+        CardinalSteps(StepsCommon {
+            major: major.direction(),
+            minor: minor.direction(),
+            accumulator: 0,
+            major_delta_abs,
+            minor_delta_abs,
         })
     }
 }
 
+trait StepsTrait: Clone {
+    fn prev(&mut self) -> Coord;
+    fn next(&mut self) -> Coord;
+}
+
 impl StepsTrait for Steps {
     fn prev(&mut self) -> Coord {
-        self.accumulator -= self.minor_delta_abs as i64;
-        if self.accumulator <= (self.major_delta_abs as i64 / 2) - self.major_delta_abs as i64 {
-            self.accumulator += self.major_delta_abs as i64;
-            self.minor.opposite().coord()
+        if self.0.major_delta_abs == 0 {
+            return Coord::new(0, 0);
+        }
+        self.0.accumulator -= self.0.minor_delta_abs as i64;
+        if self.0.accumulator <= (self.0.major_delta_abs as i64 / 2) - self.0.major_delta_abs as i64
+        {
+            self.0.accumulator += self.0.major_delta_abs as i64;
+            self.0.minor.opposite().coord()
         } else {
-            self.major.opposite().coord()
+            self.0.major.opposite().coord()
         }
     }
     fn next(&mut self) -> Coord {
-        self.accumulator += self.minor_delta_abs as i64;
-        if self.accumulator > self.major_delta_abs as i64 / 2 {
-            self.accumulator -= self.major_delta_abs as i64;
-            self.minor.coord()
+        if self.0.major_delta_abs == 0 {
+            return Coord::new(0, 0);
+        }
+        self.0.accumulator += self.0.minor_delta_abs as i64;
+        if self.0.accumulator > self.0.major_delta_abs as i64 / 2 {
+            self.0.accumulator -= self.0.major_delta_abs as i64;
+            self.0.minor.coord()
         } else {
-            self.major.coord()
+            self.0.major.coord()
         }
     }
 }
 
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct StepsCardinal(Steps);
-
-impl StepsCardinal {
-    fn new(delta: Coord) -> Self {
-        let steps = Steps::new_common(delta, |major_sign, minor_sign, major_axis| {
-            let major_coord = Coord::new_axis(major_sign as i32, 0, major_axis);
-            let minor_coord = Coord::new_axis(0, minor_sign as i32, major_axis);
-            (major_coord, minor_coord)
-        });
-        StepsCardinal(steps)
-    }
-}
-
-impl StepsTrait for StepsCardinal {
+impl StepsTrait for CardinalSteps {
     fn prev(&mut self) -> Coord {
+        if self.0.major_delta_abs == 0 {
+            return Coord::new(0, 0);
+        }
         self.0.accumulator -= self.0.minor_delta_abs as i64;
         if self.0.accumulator
             <= (self.0.major_delta_abs as i64 / 2)
@@ -136,12 +157,100 @@ impl StepsTrait for StepsCardinal {
         }
     }
     fn next(&mut self) -> Coord {
+        if self.0.major_delta_abs == 0 {
+            return Coord::new(0, 0);
+        }
         self.0.accumulator += self.0.minor_delta_abs as i64;
         if self.0.accumulator > self.0.major_delta_abs as i64 / 2 {
             self.0.accumulator -= self.0.major_delta_abs as i64 + self.0.minor_delta_abs as i64;
             self.0.minor.coord()
         } else {
             self.0.major.coord()
+        }
+    }
+}
+
+#[derive(Debug)]
+struct GeneralInfiniteIter<S>
+where
+    S: StepsTrait,
+{
+    steps: S,
+    current: Coord,
+}
+
+impl<S> GeneralInfiniteIter<S>
+where
+    S: StepsTrait,
+{
+    fn new_exclude_start(start: Coord, steps: S) -> Self {
+        Self {
+            current: start,
+            steps,
+        }
+    }
+    fn new_include_start(start: Coord, steps: S) -> Self {
+        let mut iter = Self::new_exclude_start(start, steps);
+        let backward_step = iter.steps.prev();
+        iter.current += backward_step;
+        iter
+    }
+}
+
+impl<S> Iterator for GeneralInfiniteIter<S>
+where
+    S: StepsTrait,
+{
+    type Item = Coord;
+    fn next(&mut self) -> Option<Self::Item> {
+        let step = self.steps.next();
+        if let Some(next_coord) = self.current.checked_add(step) {
+            self.current = next_coord;
+            Some(next_coord)
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct InfiniteIter(GeneralInfiniteIter<Steps>);
+
+impl Iterator for InfiniteIter {
+    type Item = Coord;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
+
+#[derive(Debug)]
+pub struct InfiniteCardinalIter(GeneralInfiniteIter<CardinalSteps>);
+
+impl Iterator for InfiniteCardinalIter {
+    type Item = Coord;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
+
+pub type Iter = Take<InfiniteIter>;
+pub type CardinalIter = Take<InfiniteCardinalIter>;
+
+#[derive(Clone, Copy)]
+pub struct Config {
+    pub exclude_start: bool,
+    pub exclude_end: bool,
+}
+
+#[derive(Clone, Copy)]
+pub struct InfiniteConfig {
+    pub exclude_start: bool,
+}
+
+impl Config {
+    fn into_infinite(self) -> InfiniteConfig {
+        InfiniteConfig {
+            exclude_start: self.exclude_start,
         }
     }
 }
@@ -157,42 +266,14 @@ impl LineSegment {
     pub fn new(start: Coord, end: Coord) -> Self {
         Self { start, end }
     }
-    pub fn traverse(&self) -> Traverse {
-        Traverse {
-            line_segment: *self,
-        }
-    }
-    pub fn traverse_cardinal(&self) -> TraverseCardinal {
-        TraverseCardinal {
-            line_segment: *self,
-        }
-    }
     pub fn delta(&self) -> Coord {
         self.end - self.start
-    }
-    pub fn iter(&self) -> LineSegmentIter {
-        GeneralLineSegmentIter::new(self.traverse())
-    }
-    pub fn iter_cardinal(&self) -> LineSegmentIterCardinal {
-        GeneralLineSegmentIter::new(self.traverse_cardinal())
-    }
-    pub fn iter_config(&self, config: Config) -> LineSegmentIter {
-        GeneralLineSegmentIter::new_config(self.traverse(), config)
-    }
-    pub fn iter_cardinal_config(&self, config: Config) -> LineSegmentIterCardinal {
-        GeneralLineSegmentIter::new_config(self.traverse_cardinal(), config)
-    }
-    pub fn steps(&self) -> Steps {
-        Steps::new(self.delta())
-    }
-    pub fn steps_cardinal(&self) -> StepsCardinal {
-        StepsCardinal::new(self.delta())
     }
     pub fn num_steps(&self) -> usize {
         let delta = self.delta();
         delta.x.abs().max(delta.y.abs()) as usize + 1
     }
-    pub fn num_steps_cardinal(&self) -> usize {
+    pub fn num_cardinal_steps(&self) -> usize {
         let delta = self.delta();
         delta.x.abs() as usize + delta.y.abs() as usize + 1
     }
@@ -202,417 +283,79 @@ impl LineSegment {
             end: self.start,
         }
     }
-    pub fn try_infinite(&self) -> Result<InfiniteLineSegment, ZeroLengthDelta> {
-        InfiniteLineSegment::try_new(self.start, self.delta())
+    fn steps(&self) -> Steps {
+        StepsDesc::new(self.delta()).into_steps()
     }
-    pub fn infinite(&self) -> InfiniteLineSegment {
-        self.try_infinite().unwrap()
+    fn cardinal_steps(&self) -> CardinalSteps {
+        StepsDesc::new(self.delta()).into_cardinal_steps()
     }
-}
-
-pub trait TraverseTrait: Clone + Eq + private::Sealed {
-    type Steps: StepsTrait;
-    type Iter: Iterator<Item = Coord>;
-    fn num_steps(&self) -> usize;
-    fn steps(&self) -> Self::Steps;
-    fn iter(&self) -> Self::Iter;
-    fn iter_config(&self, config: Config) -> Self::Iter;
-    fn line_segment(&self) -> LineSegment;
-    fn start(&self) -> Coord {
-        self.line_segment().start
+    pub fn infinite_iter(&self) -> InfiniteIter {
+        InfiniteIter(GeneralInfiniteIter::new_include_start(
+            self.start,
+            self.steps(),
+        ))
     }
-    fn end(&self) -> Coord {
-        self.line_segment().end
+    pub fn infinite_cardinal_iter(&self) -> InfiniteCardinalIter {
+        InfiniteCardinalIter(GeneralInfiniteIter::new_include_start(
+            self.start,
+            self.cardinal_steps(),
+        ))
     }
-}
-
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Traverse {
-    pub line_segment: LineSegment,
-}
-
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TraverseCardinal {
-    pub line_segment: LineSegment,
-}
-
-impl TraverseTrait for Traverse {
-    type Steps = Steps;
-    type Iter = LineSegmentIter;
-    fn num_steps(&self) -> usize {
-        self.line_segment.num_steps()
-    }
-    fn steps(&self) -> Self::Steps {
-        self.line_segment.steps()
-    }
-    fn iter(&self) -> Self::Iter {
-        self.line_segment.iter()
-    }
-    fn iter_config(&self, config: Config) -> Self::Iter {
-        self.line_segment.iter_config(config)
-    }
-    fn line_segment(&self) -> LineSegment {
-        self.line_segment
-    }
-}
-
-impl TraverseTrait for TraverseCardinal {
-    type Steps = StepsCardinal;
-    type Iter = LineSegmentIterCardinal;
-    fn num_steps(&self) -> usize {
-        self.line_segment.num_steps_cardinal()
-    }
-    fn steps(&self) -> Self::Steps {
-        self.line_segment.steps_cardinal()
-    }
-    fn iter(&self) -> LineSegmentIterCardinal {
-        self.line_segment.iter_cardinal()
-    }
-    fn iter_config(&self, config: Config) -> LineSegmentIterCardinal {
-        self.line_segment.iter_cardinal_config(config)
-    }
-    fn line_segment(&self) -> LineSegment {
-        self.line_segment
-    }
-}
-
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Default, Debug, Clone, Copy)]
-pub struct Config {
-    pub exclude_start: bool,
-    pub exclude_end: bool,
-}
-
-impl Config {
-    pub fn new() -> Self {
-        Default::default()
-    }
-    pub fn include_start(self) -> Self {
-        Self {
-            exclude_start: false,
-            ..self
-        }
-    }
-    pub fn include_end(self) -> Self {
-        Self {
-            exclude_end: false,
-            ..self
-        }
-    }
-    pub fn exclude_start(self) -> Self {
-        Self {
-            exclude_start: true,
-            ..self
-        }
-    }
-    pub fn exclude_end(self) -> Self {
-        Self {
-            exclude_end: true,
-            ..self
-        }
-    }
-}
-
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Copy)]
-pub struct GeneralLineSegmentIter<S: StepsTrait> {
-    steps: S,
-    current_coord: Coord,
-    remaining: usize,
-}
-
-pub type LineSegmentIter = GeneralLineSegmentIter<Steps>;
-pub type LineSegmentIterCardinal = GeneralLineSegmentIter<StepsCardinal>;
-
-impl<S: StepsTrait> GeneralLineSegmentIter<S> {
-    fn new<T: TraverseTrait<Steps = S>>(traverse: T) -> Self {
-        let mut steps = traverse.steps();
-        let backwards_step = steps.prev();
-        let current_coord = traverse.start() + backwards_step;
-        let remaining = traverse.num_steps();
-        Self {
-            steps,
-            current_coord,
-            remaining,
-        }
-    }
-
-    fn new_config<T: TraverseTrait<Steps = S>>(traverse: T, config: Config) -> Self {
-        let mut iter = Self::new(traverse);
-        if config.exclude_end {
-            iter.remaining -= 1;
-        }
+    pub fn config_infinite_iter(&self, config: InfiniteConfig) -> InfiniteIter {
         if config.exclude_start {
-            iter.next();
-        }
-        iter
-    }
-}
-
-impl<S: StepsTrait> Iterator for GeneralLineSegmentIter<S> {
-    type Item = Coord;
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.remaining == 0 {
-            return None;
-        }
-        let step = self.steps.next();
-        self.current_coord += step;
-        self.remaining -= 1;
-        Some(self.current_coord)
-    }
-}
-
-impl IntoIterator for LineSegment {
-    type Item = Coord;
-    type IntoIter = LineSegmentIter;
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-impl IntoIterator for Traverse {
-    type Item = Coord;
-    type IntoIter = LineSegmentIter;
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-impl IntoIterator for TraverseCardinal {
-    type Item = Coord;
-    type IntoIter = LineSegmentIterCardinal;
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct InfiniteLineSegment {
-    line_segment: LineSegment,
-}
-
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Copy)]
-pub struct ZeroLengthDelta;
-
-impl InfiniteLineSegment {
-    pub fn try_new(start: Coord, delta: Coord) -> Result<Self, ZeroLengthDelta> {
-        if delta == Coord::new(0, 0) {
-            Err(ZeroLengthDelta)
+            InfiniteIter(GeneralInfiniteIter::new_exclude_start(
+                self.start,
+                self.steps(),
+            ))
         } else {
-            Ok(Self {
-                line_segment: LineSegment::new(start, start + delta),
-            })
+            InfiniteIter(GeneralInfiniteIter::new_include_start(
+                self.start,
+                self.steps(),
+            ))
         }
     }
-    pub fn new(start: Coord, delta: Coord) -> Self {
-        Self::try_new(start, delta).unwrap()
-    }
-    pub fn start(&self) -> Coord {
-        self.line_segment.start
-    }
-    pub fn delta(&self) -> Coord {
-        self.line_segment.delta()
-    }
-    pub fn reverse(&self) -> Self {
-        let start = self.start();
-        let end = start - self.delta();
-        Self {
-            line_segment: LineSegment::new(start, end),
-        }
-    }
-    pub fn traverse(&self) -> InfiniteTraverse {
-        InfiniteTraverse {
-            line_segment: *self,
-        }
-    }
-    pub fn traverse_cardinal(&self) -> InfiniteTraverseCardinal {
-        InfiniteTraverseCardinal {
-            line_segment: *self,
-        }
-    }
-    pub fn iter(&self) -> InfiniteLineSegmentIter {
-        GeneralInfiniteLineSegmentIter::new(self.traverse())
-    }
-    pub fn iter_config(&self, config: InfiniteConfig) -> InfiniteLineSegmentIter {
+    pub fn config_infinite_cardinal_iter(&self, config: InfiniteConfig) -> InfiniteCardinalIter {
         if config.exclude_start {
-            GeneralInfiniteLineSegmentIter::new_exclude_start(self.traverse())
+            InfiniteCardinalIter(GeneralInfiniteIter::new_exclude_start(
+                self.start,
+                self.cardinal_steps(),
+            ))
         } else {
-            self.iter()
+            InfiniteCardinalIter(GeneralInfiniteIter::new_include_start(
+                self.start,
+                self.cardinal_steps(),
+            ))
         }
     }
-    pub fn iter_cardinal(&self) -> InfiniteLineSegmentIterCardinal {
-        GeneralInfiniteLineSegmentIter::new(self.traverse_cardinal())
+    pub fn iter(&self) -> Iter {
+        self.infinite_iter().take(self.num_steps())
     }
-    pub fn iter_cardinal_config(&self, config: InfiniteConfig) -> InfiniteLineSegmentIterCardinal {
-        if config.exclude_start {
-            GeneralInfiniteLineSegmentIter::new_exclude_start(self.traverse_cardinal())
+    pub fn cardinal_iter(&self) -> CardinalIter {
+        self.infinite_cardinal_iter()
+            .take(self.num_cardinal_steps())
+    }
+    pub fn config_iter(&self, config: Config) -> Iter {
+        let infinite = self.config_infinite_iter(config.into_infinite());
+        if let Some(num_steps) = self
+            .num_steps()
+            .checked_sub(config.exclude_start as usize + config.exclude_end as usize)
+        {
+            infinite.take(num_steps)
         } else {
-            self.iter_cardinal()
+            infinite.take(0)
         }
     }
-}
-
-pub trait InfiniteTraverseTrait: Clone + Eq + private::Sealed {
-    type Steps: StepsTrait;
-    type Iter: Iterator<Item = Coord>;
-    fn steps(&self) -> Self::Steps;
-    fn iter(&self) -> Self::Iter;
-    fn iter_config(&self, config: InfiniteConfig) -> Self::Iter;
-    fn start(&self) -> Coord;
-}
-
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct InfiniteTraverse {
-    line_segment: InfiniteLineSegment,
-}
-
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct InfiniteTraverseCardinal {
-    line_segment: InfiniteLineSegment,
-}
-
-impl InfiniteTraverseTrait for InfiniteTraverse {
-    type Steps = Steps;
-    type Iter = InfiniteLineSegmentIter;
-    fn steps(&self) -> Self::Steps {
-        Steps::new(self.line_segment.delta())
-    }
-    fn iter(&self) -> Self::Iter {
-        self.line_segment.iter()
-    }
-    fn iter_config(&self, config: InfiniteConfig) -> Self::Iter {
-        self.line_segment.iter_config(config)
-    }
-    fn start(&self) -> Coord {
-        self.line_segment.start()
-    }
-}
-
-impl InfiniteTraverseTrait for InfiniteTraverseCardinal {
-    type Steps = StepsCardinal;
-    type Iter = InfiniteLineSegmentIterCardinal;
-    fn steps(&self) -> Self::Steps {
-        StepsCardinal::new(self.line_segment.delta())
-    }
-    fn iter(&self) -> Self::Iter {
-        self.line_segment.iter_cardinal()
-    }
-    fn iter_config(&self, config: InfiniteConfig) -> Self::Iter {
-        self.line_segment.iter_cardinal_config(config)
-    }
-    fn start(&self) -> Coord {
-        self.line_segment.start()
-    }
-}
-
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Default, Debug, Clone, Copy)]
-pub struct InfiniteConfig {
-    pub exclude_start: bool,
-}
-
-impl InfiniteConfig {
-    pub fn new() -> Self {
-        Default::default()
-    }
-    pub fn include_start(self) -> Self {
-        Self {
-            exclude_start: false,
-            ..self
-        }
-    }
-    pub fn exclude_start(self) -> Self {
-        Self {
-            exclude_start: true,
-            ..self
-        }
-    }
-}
-
-#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Copy)]
-pub struct GeneralInfiniteLineSegmentIter<S: StepsTrait> {
-    steps: S,
-    current_coord: Coord,
-}
-
-pub type InfiniteLineSegmentIter = GeneralInfiniteLineSegmentIter<Steps>;
-pub type InfiniteLineSegmentIterCardinal = GeneralInfiniteLineSegmentIter<StepsCardinal>;
-
-impl<S: StepsTrait> GeneralInfiniteLineSegmentIter<S> {
-    fn new<T: InfiniteTraverseTrait<Steps = S>>(traverse: T) -> Self {
-        let mut steps = traverse.steps();
-        let backwards_step = steps.prev();
-        let current_coord = traverse.start() + backwards_step;
-        Self {
-            steps,
-            current_coord,
-        }
-    }
-
-    fn new_exclude_start<T: InfiniteTraverseTrait<Steps = S>>(traverse: T) -> Self {
-        let steps = traverse.steps();
-        let current_coord = traverse.start();
-        Self {
-            steps,
-            current_coord,
-        }
-    }
-}
-
-impl<S: StepsTrait> Iterator for GeneralInfiniteLineSegmentIter<S> {
-    type Item = Coord;
-    fn next(&mut self) -> Option<Self::Item> {
-        let (delta, next_steps) = self.steps.next_copy();
-        if let Some(next_coord) = self.current_coord.checked_add(delta) {
-            self.current_coord = next_coord;
-            self.steps = next_steps;
-            Some(next_coord)
+    pub fn config_cardinal_iter(&self, config: Config) -> CardinalIter {
+        let infinite = self.config_infinite_cardinal_iter(config.into_infinite());
+        if let Some(num_steps) = self
+            .num_cardinal_steps()
+            .checked_sub(config.exclude_start as usize + config.exclude_end as usize)
+        {
+            infinite.take(num_steps)
         } else {
-            None
+            infinite.take(0)
         }
     }
-}
-
-impl IntoIterator for InfiniteLineSegment {
-    type Item = Coord;
-    type IntoIter = InfiniteLineSegmentIter;
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-impl IntoIterator for InfiniteTraverse {
-    type Item = Coord;
-    type IntoIter = InfiniteLineSegmentIter;
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-impl IntoIterator for InfiniteTraverseCardinal {
-    type Item = Coord;
-    type IntoIter = InfiniteLineSegmentIterCardinal;
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
-    }
-}
-
-mod private {
-    pub trait Sealed {}
-
-    impl Sealed for super::Steps {}
-    impl Sealed for super::StepsCardinal {}
-    impl Sealed for super::Traverse {}
-    impl Sealed for super::TraverseCardinal {}
-    impl Sealed for super::InfiniteTraverse {}
-    impl Sealed for super::InfiniteTraverseCardinal {}
 }
 
 #[cfg(test)]
@@ -623,6 +366,97 @@ mod test {
     use self::rand::rngs::StdRng;
     use self::rand::{Rng, SeedableRng};
     use super::*;
+
+    trait TraverseTrait {
+        type Steps: StepsTrait + Clone + Eq;
+        type Iter: Iterator<Item = Coord> + ::std::fmt::Debug;
+        fn iter(&self) -> Self::Iter;
+        fn config_iter(&self, config: Config) -> Self::Iter;
+        fn num_steps(&self) -> usize;
+        fn start(&self) -> Coord;
+        fn end(&self) -> Coord;
+        fn steps(&self) -> Self::Steps;
+    }
+
+    #[derive(Debug)]
+    struct Traverse(LineSegment);
+
+    #[derive(Debug)]
+    struct CardinalTraverse(LineSegment);
+
+    impl TraverseTrait for Traverse {
+        type Steps = Steps;
+        type Iter = Iter;
+        fn iter(&self) -> Self::Iter {
+            self.0.iter()
+        }
+        fn config_iter(&self, config: Config) -> Self::Iter {
+            self.0.config_iter(config)
+        }
+        fn num_steps(&self) -> usize {
+            self.0.num_steps()
+        }
+        fn start(&self) -> Coord {
+            self.0.start
+        }
+        fn end(&self) -> Coord {
+            self.0.end
+        }
+        fn steps(&self) -> Self::Steps {
+            self.0.steps()
+        }
+    }
+
+    impl TraverseTrait for CardinalTraverse {
+        type Steps = CardinalSteps;
+        type Iter = CardinalIter;
+        fn iter(&self) -> Self::Iter {
+            self.0.cardinal_iter()
+        }
+        fn config_iter(&self, config: Config) -> Self::Iter {
+            self.0.config_cardinal_iter(config)
+        }
+        fn num_steps(&self) -> usize {
+            self.0.num_cardinal_steps()
+        }
+        fn start(&self) -> Coord {
+            self.0.start
+        }
+        fn end(&self) -> Coord {
+            self.0.end
+        }
+        fn steps(&self) -> Self::Steps {
+            self.0.cardinal_steps()
+        }
+    }
+
+    trait InfiniteTraverseTrait {
+        type Iter: Iterator<Item = Coord>;
+        fn iter(&self) -> Self::Iter;
+        fn config_iter(&self, config: InfiniteConfig) -> Self::Iter;
+    }
+
+    struct InfiniteTraverse(LineSegment);
+    impl InfiniteTraverseTrait for InfiniteTraverse {
+        type Iter = InfiniteIter;
+        fn iter(&self) -> Self::Iter {
+            self.0.infinite_iter()
+        }
+        fn config_iter(&self, config: InfiniteConfig) -> Self::Iter {
+            self.0.config_infinite_iter(config)
+        }
+    }
+
+    struct InfiniteCardinalTraverse(LineSegment);
+    impl InfiniteTraverseTrait for InfiniteCardinalTraverse {
+        type Iter = InfiniteCardinalIter;
+        fn iter(&self) -> Self::Iter {
+            self.0.infinite_cardinal_iter()
+        }
+        fn config_iter(&self, config: InfiniteConfig) -> Self::Iter {
+            self.0.config_infinite_cardinal_iter(config)
+        }
+    }
 
     fn test_properties_gen<T>(traverse: T)
     where
@@ -647,7 +481,10 @@ mod test {
         }
         let orig_coords = coords;
         let coords: Vec<_> = traverse
-            .iter_config(Config::new().exclude_start().exclude_end())
+            .config_iter(Config {
+                exclude_start: true,
+                exclude_end: true,
+            })
             .collect();
         assert_eq!(coords.len(), traverse.num_steps().max(2) - 2);
         if let Some(&coord) = coords.first() {
@@ -657,7 +494,10 @@ mod test {
             assert_eq!(coord, orig_coords[orig_coords.len() - 2]);
         }
         let coords: Vec<_> = traverse
-            .iter_config(Config::new().exclude_start())
+            .config_iter(Config {
+                exclude_start: true,
+                exclude_end: false,
+            })
             .collect();
         assert_eq!(coords.len(), traverse.num_steps().max(1) - 1);
         if let Some(&coord) = coords.first() {
@@ -666,7 +506,12 @@ mod test {
         if let Some(&coord) = coords.last() {
             assert_eq!(coord, orig_coords[orig_coords.len() - 1]);
         }
-        let coords: Vec<_> = traverse.iter_config(Config::new().exclude_end()).collect();
+        let coords: Vec<_> = traverse
+            .config_iter(Config {
+                exclude_start: false,
+                exclude_end: true,
+            })
+            .collect();
         assert_eq!(coords.len(), traverse.num_steps().max(1) - 1);
         if let Some(&coord) = coords.first() {
             assert_eq!(coord, orig_coords[0]);
@@ -680,23 +525,26 @@ mod test {
         f.iter().zip(i.iter()).for_each(|(f, i)| {
             assert_eq!(f, i);
         });
-        f.iter_config(Config::new().exclude_start())
-            .zip(i.iter_config(InfiniteConfig::new().exclude_start()))
-            .for_each(|(f, i)| {
-                assert_eq!(f, i);
-            });
+        f.config_iter(Config {
+            exclude_start: true,
+            exclude_end: false,
+        })
+        .zip(i.config_iter(InfiniteConfig {
+            exclude_start: true,
+        }))
+        .for_each(|(f, i)| {
+            assert_eq!(f, i);
+        });
     }
 
     fn test_properties(line_segment: LineSegment) {
-        test_properties_gen(line_segment.traverse());
-        test_properties_gen(line_segment.traverse_cardinal());
-        if let Ok(infinite) = line_segment.try_infinite() {
-            compare_finite_with_infinite(line_segment.traverse(), infinite.traverse());
-            compare_finite_with_infinite(
-                line_segment.traverse_cardinal(),
-                infinite.traverse_cardinal(),
-            );
-        }
+        test_properties_gen(Traverse(line_segment));
+        test_properties_gen(CardinalTraverse(line_segment));
+        compare_finite_with_infinite(Traverse(line_segment), InfiniteTraverse(line_segment));
+        compare_finite_with_infinite(
+            CardinalTraverse(line_segment),
+            InfiniteCardinalTraverse(line_segment),
+        );
     }
 
     fn rand_int<R: Rng>(rng: &mut R) -> i32 {
@@ -731,12 +579,7 @@ mod test {
     #[test]
     fn infinite_traverse() {
         let line = LineSegment::new(Coord::new(0, 0), Coord::new(1, 0));
-        let first_4 = line
-            .infinite()
-            .traverse()
-            .iter()
-            .take(4)
-            .collect::<Vec<_>>();
+        let first_4 = InfiniteTraverse(line).iter().take(4).collect::<Vec<_>>();
         assert_eq!(
             &first_4,
             &[
@@ -787,8 +630,10 @@ mod test {
         );
         assert_eq!(
             render_iter(
-                LineSegment::new(Coord::new(2, 3), Coord::new(8, 6))
-                    .iter_config(Config::new().exclude_end().exclude_start())
+                LineSegment::new(Coord::new(2, 3), Coord::new(8, 6)).config_iter(Config {
+                    exclude_start: true,
+                    exclude_end: true
+                })
             ),
             &[
                 "..........",
@@ -805,7 +650,7 @@ mod test {
         );
 
         assert_eq!(
-            render_iter(LineSegment::new(Coord::new(2, 3), Coord::new(8, 6)).iter_cardinal()),
+            render_iter(LineSegment::new(Coord::new(2, 3), Coord::new(8, 6)).cardinal_iter()),
             &[
                 "..........",
                 "..........",
