@@ -170,6 +170,7 @@ impl StepsTrait for CardinalSteps {
     }
 }
 
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug)]
 struct GeneralInfiniteIter<S>
 where
@@ -213,6 +214,7 @@ where
     }
 }
 
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug)]
 pub struct InfiniteIter(GeneralInfiniteIter<Steps>);
 
@@ -223,6 +225,7 @@ impl Iterator for InfiniteIter {
     }
 }
 
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug)]
 pub struct InfiniteCardinalIter(GeneralInfiniteIter<CardinalSteps>);
 
