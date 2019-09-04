@@ -5,7 +5,6 @@ extern crate coord_2d;
 extern crate direction;
 pub use coord_2d::Coord;
 pub use direction::{CardinalDirection, Direction, OrdinalDirection};
-use std::iter::Take;
 
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -236,8 +235,48 @@ impl Iterator for InfiniteCardinalIter {
     }
 }
 
-pub type Iter = Take<InfiniteIter>;
-pub type CardinalIter = Take<InfiniteCardinalIter>;
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[derive(Debug)]
+struct Finite<I> {
+    iter: I,
+    remaining: usize,
+}
+
+impl<I> Iterator for Finite<I>
+where
+    I: Iterator,
+{
+    type Item = I::Item;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+        self.remaining -= 1;
+        self.iter.next()
+    }
+}
+
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[derive(Debug)]
+pub struct Iter(Finite<InfiniteIter>);
+
+impl Iterator for Iter {
+    type Item = Coord;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
+
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[derive(Debug)]
+pub struct CardinalIter(Finite<InfiniteCardinalIter>);
+
+impl Iterator for CardinalIter {
+    type Item = Coord;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
 
 #[derive(Clone, Copy)]
 pub struct Config {
@@ -331,33 +370,40 @@ impl LineSegment {
         }
     }
     pub fn iter(&self) -> Iter {
-        self.infinite_iter().take(self.num_steps())
+        Iter(Finite {
+            iter: self.infinite_iter(),
+            remaining: self.num_steps(),
+        })
     }
     pub fn cardinal_iter(&self) -> CardinalIter {
-        self.infinite_cardinal_iter()
-            .take(self.num_cardinal_steps())
+        CardinalIter(Finite {
+            iter: self.infinite_cardinal_iter(),
+            remaining: self.num_cardinal_steps(),
+        })
     }
     pub fn config_iter(&self, config: Config) -> Iter {
-        let infinite = self.config_infinite_iter(config.into_infinite());
-        if let Some(num_steps) = self
+        let iter = self.config_infinite_iter(config.into_infinite());
+        let remaining = if let Some(num_steps) = self
             .num_steps()
             .checked_sub(config.exclude_start as usize + config.exclude_end as usize)
         {
-            infinite.take(num_steps)
+            num_steps
         } else {
-            infinite.take(0)
-        }
+            0
+        };
+        Iter(Finite { iter, remaining })
     }
     pub fn config_cardinal_iter(&self, config: Config) -> CardinalIter {
-        let infinite = self.config_infinite_cardinal_iter(config.into_infinite());
-        if let Some(num_steps) = self
+        let iter = self.config_infinite_cardinal_iter(config.into_infinite());
+        let remaining = if let Some(num_steps) = self
             .num_cardinal_steps()
             .checked_sub(config.exclude_start as usize + config.exclude_end as usize)
         {
-            infinite.take(num_steps)
+            num_steps
         } else {
-            infinite.take(0)
-        }
+            0
+        };
+        CardinalIter(Finite { iter, remaining })
     }
 }
 

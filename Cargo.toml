@@ -10,7 +10,7 @@ repository = "https://github.com/stevebob/line-2d.git"
 documentation = "https://docs.rs/line_2d"
 
 [features]
-serialize = ["serde", "coord_2d/serialize"]
+serialize = ["serde", "coord_2d/serialize", "direction/serialize"]
 
 [dependencies]
 coord_2d = "0.2"
