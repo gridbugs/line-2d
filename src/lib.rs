@@ -399,6 +399,12 @@ impl LineSegment {
         }
         Self { start, end }
     }
+    pub fn start(&self) -> Coord {
+        self.start
+    }
+    pub fn end(&self) -> Coord {
+        self.end
+    }
     pub fn delta(&self) -> Coord {
         self.end - self.start
     }
