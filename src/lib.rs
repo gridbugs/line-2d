@@ -158,7 +158,7 @@ impl StepsTrait for CardinalSteps {
 }
 
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct GeneralInfiniteIter<S>
 where
     S: StepsTrait,
@@ -208,7 +208,7 @@ where
 }
 
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct InfiniteIter(GeneralInfiniteIter<Steps>);
 
 impl Iterator for InfiniteIter {
@@ -219,7 +219,7 @@ impl Iterator for InfiniteIter {
 }
 
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct InfiniteCardinalIter(GeneralInfiniteIter<CardinalSteps>);
 
 impl Iterator for InfiniteCardinalIter {
@@ -230,7 +230,7 @@ impl Iterator for InfiniteCardinalIter {
 }
 
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Finite<I> {
     iter: I,
     remaining: usize,
@@ -251,7 +251,7 @@ where
 }
 
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Iter(Finite<InfiniteIter>);
 
 impl Iterator for Iter {
@@ -262,7 +262,7 @@ impl Iterator for Iter {
 }
 
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CardinalIter(Finite<InfiniteCardinalIter>);
 
 impl Iterator for CardinalIter {
@@ -280,7 +280,7 @@ pub struct Node {
 }
 
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct GeneralInfiniteNodeIter<S>
 where
     S: StepsTrait,
@@ -313,7 +313,7 @@ where
 }
 
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct InfiniteNodeIter(GeneralInfiniteNodeIter<Steps>);
 
 impl Iterator for InfiniteNodeIter {
@@ -324,7 +324,7 @@ impl Iterator for InfiniteNodeIter {
 }
 
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct InfiniteCardinalNodeIter(GeneralInfiniteNodeIter<CardinalSteps>);
 
 impl Iterator for InfiniteCardinalNodeIter {
@@ -335,7 +335,7 @@ impl Iterator for InfiniteCardinalNodeIter {
 }
 
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct NodeIter(Finite<InfiniteNodeIter>);
 
 impl Iterator for NodeIter {
@@ -346,7 +346,7 @@ impl Iterator for NodeIter {
 }
 
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CardinalNodeIter(Finite<InfiniteCardinalNodeIter>);
 
 impl Iterator for CardinalNodeIter {
