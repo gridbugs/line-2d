@@ -189,9 +189,6 @@ where
             steps: self.steps,
         }
     }
-    fn current(&self) -> Coord {
-        self.current
-    }
 }
 
 impl<S> Iterator for GeneralInfiniteIter<S>
@@ -214,12 +211,6 @@ where
 #[derive(Clone, Debug)]
 pub struct InfiniteIter(GeneralInfiniteIter<Steps>);
 
-impl InfiniteIter {
-    pub fn current(&self) -> Coord {
-        self.0.current()
-    }
-}
-
 impl Iterator for InfiniteIter {
     type Item = Coord;
     fn next(&mut self) -> Option<Self::Item> {
@@ -230,12 +221,6 @@ impl Iterator for InfiniteIter {
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug)]
 pub struct InfiniteCardinalIter(GeneralInfiniteIter<CardinalSteps>);
-
-impl InfiniteCardinalIter {
-    pub fn current(&self) -> Coord {
-        self.0.current()
-    }
-}
 
 impl Iterator for InfiniteCardinalIter {
     type Item = Coord;
@@ -269,12 +254,6 @@ where
 #[derive(Clone, Debug)]
 pub struct Iter(Finite<InfiniteIter>);
 
-impl Iter {
-    pub fn current(&self) -> Coord {
-        self.0.iter.current()
-    }
-}
-
 impl Iterator for Iter {
     type Item = Coord;
     fn next(&mut self) -> Option<Self::Item> {
@@ -285,12 +264,6 @@ impl Iterator for Iter {
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug)]
 pub struct CardinalIter(Finite<InfiniteCardinalIter>);
-
-impl CardinalIter {
-    pub fn current(&self) -> Coord {
-        self.0.iter.current()
-    }
-}
 
 impl Iterator for CardinalIter {
     type Item = Coord;
@@ -314,15 +287,6 @@ where
 {
     steps: S,
     current: Coord,
-}
-
-impl<S> GeneralInfiniteNodeIter<S>
-where
-    S: StepsTrait,
-{
-    fn current(&self) -> Coord {
-        self.current
-    }
 }
 
 impl<S> Iterator for GeneralInfiniteNodeIter<S>
@@ -352,12 +316,6 @@ where
 #[derive(Clone, Debug)]
 pub struct InfiniteNodeIter(GeneralInfiniteNodeIter<Steps>);
 
-impl InfiniteNodeIter {
-    pub fn current(&self) -> Coord {
-        self.0.current()
-    }
-}
-
 impl Iterator for InfiniteNodeIter {
     type Item = Node;
     fn next(&mut self) -> Option<Self::Item> {
@@ -368,12 +326,6 @@ impl Iterator for InfiniteNodeIter {
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug)]
 pub struct InfiniteCardinalNodeIter(GeneralInfiniteNodeIter<CardinalSteps>);
-
-impl InfiniteCardinalNodeIter {
-    pub fn current(&self) -> Coord {
-        self.0.current()
-    }
-}
 
 impl Iterator for InfiniteCardinalNodeIter {
     type Item = Node;
@@ -386,12 +338,6 @@ impl Iterator for InfiniteCardinalNodeIter {
 #[derive(Clone, Debug)]
 pub struct NodeIter(Finite<InfiniteNodeIter>);
 
-impl NodeIter {
-    pub fn current(&self) -> Coord {
-        self.0.iter.current()
-    }
-}
-
 impl Iterator for NodeIter {
     type Item = Node;
     fn next(&mut self) -> Option<Self::Item> {
@@ -402,12 +348,6 @@ impl Iterator for NodeIter {
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Clone, Debug)]
 pub struct CardinalNodeIter(Finite<InfiniteCardinalNodeIter>);
-
-impl CardinalNodeIter {
-    pub fn current(&self) -> Coord {
-        self.0.iter.current()
-    }
-}
 
 impl Iterator for CardinalNodeIter {
     type Item = Node;
