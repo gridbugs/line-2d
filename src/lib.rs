@@ -4,7 +4,16 @@ extern crate serde;
 extern crate coord_2d;
 extern crate direction;
 pub use coord_2d::Coord;
-pub use direction::{CardinalDirection, Direction, OrdinalDirection};
+pub use direction::Direction;
+use direction::{CardinalDirection, OrdinalDirection};
+
+fn delta_num_steps(delta: Coord) -> u32 {
+    delta.x.abs().max(delta.y.abs()) as u32 + 1
+}
+
+fn delta_num_cardinal_steps(delta: Coord) -> u32 {
+    delta.x.abs() as u32 + delta.y.abs() as u32 + 1
+}
 
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -233,7 +242,7 @@ impl Iterator for InfiniteCardinalIter {
 #[derive(Clone, Debug)]
 struct Finite<I> {
     iter: I,
-    remaining: usize,
+    remaining: u32,
 }
 
 impl<I> Iterator for Finite<I>
@@ -385,6 +394,9 @@ pub struct LineSegment {
 #[derive(Debug)]
 pub struct StartAndEndAreTheSame;
 
+#[derive(Debug)]
+pub struct ZeroDelta;
+
 impl LineSegment {
     pub fn try_new(start: Coord, end: Coord) -> Result<Self, StartAndEndAreTheSame> {
         if start == end {
@@ -408,13 +420,11 @@ impl LineSegment {
     pub fn delta(&self) -> Coord {
         self.end - self.start
     }
-    pub fn num_steps(&self) -> usize {
-        let delta = self.delta();
-        delta.x.abs().max(delta.y.abs()) as usize + 1
+    pub fn num_steps(&self) -> u32 {
+        delta_num_steps(self.delta())
     }
-    pub fn num_cardinal_steps(&self) -> usize {
-        let delta = self.delta();
-        delta.x.abs() as usize + delta.y.abs() as usize + 1
+    pub fn num_cardinal_steps(&self) -> u32 {
+        delta_num_cardinal_steps(self.delta())
     }
     pub fn reverse(&self) -> Self {
         Self {
@@ -482,7 +492,7 @@ impl LineSegment {
         let iter = self.config_infinite_iter(config.into_infinite());
         let remaining = if let Some(num_steps) = self
             .num_steps()
-            .checked_sub(config.exclude_start as usize + config.exclude_end as usize)
+            .checked_sub(config.exclude_start as u32 + config.exclude_end as u32)
         {
             num_steps
         } else {
@@ -494,7 +504,7 @@ impl LineSegment {
         let iter = self.config_infinite_cardinal_iter(config.into_infinite());
         let remaining = if let Some(num_steps) = self
             .num_cardinal_steps()
-            .checked_sub(config.exclude_start as usize + config.exclude_end as usize)
+            .checked_sub(config.exclude_start as u32 + config.exclude_end as u32)
         {
             num_steps
         } else {
@@ -560,7 +570,7 @@ impl LineSegment {
         let iter = self.config_infinite_node_iter(config.into_infinite());
         let remaining = if let Some(num_steps) = self
             .num_steps()
-            .checked_sub(config.exclude_start as usize + config.exclude_end as usize)
+            .checked_sub(config.exclude_start as u32 + config.exclude_end as u32)
         {
             num_steps
         } else {
@@ -572,13 +582,135 @@ impl LineSegment {
         let iter = self.config_infinite_cardinal_node_iter(config.into_infinite());
         let remaining = if let Some(num_steps) = self
             .num_cardinal_steps()
-            .checked_sub(config.exclude_start as usize + config.exclude_end as usize)
+            .checked_sub(config.exclude_start as u32 + config.exclude_end as u32)
         {
             num_steps
         } else {
             0
         };
         CardinalNodeIter(Finite { iter, remaining })
+    }
+}
+
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[derive(Clone, Debug)]
+pub struct InfiniteStepIter(Steps);
+
+impl InfiniteStepIter {
+    pub fn try_new(delta: Coord) -> Result<Self, ZeroDelta> {
+        if delta == Coord::new(0, 0) {
+            Err(ZeroDelta)
+        } else {
+            Ok(Self(StepsDesc::new(delta).into_steps()))
+        }
+    }
+    pub fn new(delta: Coord) -> Self {
+        if delta == Coord::new(0, 0) {
+            panic!("delta must not be zero");
+        } else {
+            Self(StepsDesc::new(delta).into_steps())
+        }
+    }
+}
+
+impl Iterator for InfiniteStepIter {
+    type Item = Direction;
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(self.0.next())
+    }
+}
+
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[derive(Clone, Debug)]
+pub struct InfiniteCardinalStepIter(CardinalSteps);
+
+impl InfiniteCardinalStepIter {
+    pub fn try_new(delta: Coord) -> Result<Self, ZeroDelta> {
+        if delta == Coord::new(0, 0) {
+            Err(ZeroDelta)
+        } else {
+            Ok(Self(StepsDesc::new(delta).into_cardinal_steps()))
+        }
+    }
+    pub fn new(delta: Coord) -> Self {
+        if delta == Coord::new(0, 0) {
+            panic!("delta must not be zero");
+        } else {
+            Self(StepsDesc::new(delta).into_cardinal_steps())
+        }
+    }
+}
+
+impl Iterator for InfiniteCardinalStepIter {
+    type Item = Direction;
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(self.0.next())
+    }
+}
+
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[derive(Clone, Debug)]
+pub struct StepIter {
+    infinite: InfiniteStepIter,
+    remaining: u32,
+}
+
+impl StepIter {
+    pub fn try_new(delta: Coord) -> Result<Self, ZeroDelta> {
+        Ok(Self {
+            infinite: InfiniteStepIter::try_new(delta)?,
+            remaining: delta_num_steps(delta),
+        })
+    }
+    pub fn new(delta: Coord) -> Self {
+        Self {
+            infinite: InfiniteStepIter::new(delta),
+            remaining: delta_num_steps(delta),
+        }
+    }
+}
+
+impl Iterator for StepIter {
+    type Item = Direction;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+        self.remaining -= 1;
+        self.infinite.next()
+    }
+}
+
+#[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
+#[derive(Clone, Debug)]
+pub struct CardinalStepIter {
+    infinite: InfiniteCardinalStepIter,
+    remaining: u32,
+}
+
+impl CardinalStepIter {
+    pub fn try_new(delta: Coord) -> Result<Self, ZeroDelta> {
+        Ok(Self {
+            infinite: InfiniteCardinalStepIter::try_new(delta)?,
+            remaining: delta_num_cardinal_steps(delta),
+        })
+    }
+    pub fn new(delta: Coord) -> Self {
+        Self {
+            infinite: InfiniteCardinalStepIter::new(delta),
+            remaining: delta_num_cardinal_steps(delta),
+        }
+    }
+}
+
+impl Iterator for CardinalStepIter {
+    type Item = Direction;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+        self.remaining -= 1;
+        self.infinite.next()
     }
 }
 
@@ -596,7 +728,7 @@ mod test {
         type Iter: Iterator<Item = Coord> + ::std::fmt::Debug;
         fn iter(&self) -> Self::Iter;
         fn config_iter(&self, config: Config) -> Self::Iter;
-        fn num_steps(&self) -> usize;
+        fn num_steps(&self) -> u32;
         fn start(&self) -> Coord;
         fn end(&self) -> Coord;
         fn steps(&self) -> Self::Steps;
@@ -617,7 +749,7 @@ mod test {
         fn config_iter(&self, config: Config) -> Self::Iter {
             self.0.config_iter(config)
         }
-        fn num_steps(&self) -> usize {
+        fn num_steps(&self) -> u32 {
             self.0.num_steps()
         }
         fn start(&self) -> Coord {
@@ -640,7 +772,7 @@ mod test {
         fn config_iter(&self, config: Config) -> Self::Iter {
             self.0.config_cardinal_iter(config)
         }
-        fn num_steps(&self) -> usize {
+        fn num_steps(&self) -> u32 {
             self.0.num_cardinal_steps()
         }
         fn start(&self) -> Coord {
@@ -688,7 +820,7 @@ mod test {
         T::Steps: ::std::fmt::Debug,
     {
         let coords: Vec<_> = traverse.iter().collect();
-        assert_eq!(coords.len(), traverse.num_steps());
+        assert_eq!(coords.len() as u32, traverse.num_steps());
         assert_eq!(*coords.first().unwrap(), traverse.start());
         assert_eq!(*coords.last().unwrap(), traverse.end());
         let mut steps = traverse.steps();
@@ -710,7 +842,7 @@ mod test {
                 exclude_end: true,
             })
             .collect();
-        assert_eq!(coords.len(), traverse.num_steps().max(2) - 2);
+        assert_eq!(coords.len() as u32, traverse.num_steps().max(2) - 2);
         if let Some(&coord) = coords.first() {
             assert_eq!(coord, orig_coords[1]);
         }
@@ -723,7 +855,7 @@ mod test {
                 exclude_end: false,
             })
             .collect();
-        assert_eq!(coords.len(), traverse.num_steps().max(1) - 1);
+        assert_eq!(coords.len() as u32, traverse.num_steps().max(1) - 1);
         if let Some(&coord) = coords.first() {
             assert_eq!(coord, orig_coords[1]);
         }
@@ -736,7 +868,7 @@ mod test {
                 exclude_end: true,
             })
             .collect();
-        assert_eq!(coords.len(), traverse.num_steps().max(1) - 1);
+        assert_eq!(coords.len() as u32, traverse.num_steps().max(1) - 1);
         if let Some(&coord) = coords.first() {
             assert_eq!(coord, orig_coords[0]);
         }
@@ -797,7 +929,7 @@ mod test {
         test_properties(LineSegment::new(Coord::new(1, -1), Coord::new(0, 0)));
         test_properties(LineSegment::new(Coord::new(1, 100), Coord::new(0, 0)));
         test_properties(LineSegment::new(Coord::new(100, 1), Coord::new(0, 0)));
-        const NUM_RAND_TESTS: usize = 10000;
+        const NUM_RAND_TESTS: u32 = 10000;
         let mut rng = StdRng::seed_from_u64(0);
         for _ in 0..NUM_RAND_TESTS {
             test_properties(rand_line_segment(&mut rng));
@@ -965,6 +1097,19 @@ mod test {
                 "../.......",
                 ".........."
             ]
+        );
+    }
+
+    #[test]
+    fn step() {
+        use Direction::*;
+        assert_eq!(
+            StepIter::new(Coord::new(4, 1)).collect::<Vec<_>>(),
+            [East, East, SouthEast, East, East]
+        );
+        assert_eq!(
+            CardinalStepIter::new(Coord::new(3, 1)).collect::<Vec<_>>(),
+            [East, South, East, East, East]
         );
     }
 }
