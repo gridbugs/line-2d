@@ -611,6 +611,9 @@ impl InfiniteStepIter {
             Self(StepsDesc::new(delta).into_steps())
         }
     }
+    pub fn step(&mut self) -> Direction {
+        self.0.next()
+    }
 }
 
 impl Iterator for InfiniteStepIter {
@@ -638,6 +641,9 @@ impl InfiniteCardinalStepIter {
         } else {
             Self(StepsDesc::new(delta).into_cardinal_steps())
         }
+    }
+    pub fn step(&mut self) -> Direction {
+        self.0.next()
     }
 }
 
