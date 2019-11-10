@@ -19,4 +19,4 @@ serde = { version = "1.0", features = ["serde_derive"], optional = true }
 
 [dev-dependencies]
 rand = "0.7"
-grid_2d = "0.13"
+grid_2d = "0.14"
