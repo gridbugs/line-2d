@@ -149,7 +149,7 @@ impl StepsTrait for CardinalSteps {
                 - self.0.major_delta_abs as i64
                 - self.0.minor_delta_abs as i64
         {
-            self.0.accumulator += self.0.major_delta_abs as i64 + self.0.minor_delta_abs as i64;;
+            self.0.accumulator += self.0.major_delta_abs as i64 + self.0.minor_delta_abs as i64;
             self.0.minor.opposite()
         } else {
             self.0.major.opposite()
