@@ -8,6 +8,7 @@ readme = "README.md"
 homepage = "https://github.com/gridbugs/line-2d.git"
 repository = "https://github.com/gridbugs/line-2d.git"
 documentation = "https://docs.rs/line_2d"
+edition = "2021"
 
 [features]
 serialize = ["serde", "coord_2d/serialize", "direction/serialize"]
