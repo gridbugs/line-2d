@@ -1,11 +1,10 @@
-#[cfg(feature = "serialize")]
-#[macro_use]
-extern crate serde;
-extern crate coord_2d;
-extern crate direction;
 pub use coord_2d::Coord;
 pub use direction::Direction;
 use direction::{CardinalDirection, OrdinalDirection};
+use either::Either;
+#[cfg(feature = "serialize")]
+use serde::{Deserialize, Serialize};
+use std::iter;
 
 fn delta_num_steps(delta: Coord) -> u32 {
     delta.x.abs().max(delta.y.abs()) as u32 + 1
@@ -384,6 +383,7 @@ impl Config {
     }
 }
 
+/// A straight line between two different points
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LineSegment {
@@ -405,6 +405,8 @@ impl LineSegment {
             Ok(Self { start, end })
         }
     }
+
+    /// Creates a new `LineSegment` panicking if `start` and `end` are the same
     pub fn new(start: Coord, end: Coord) -> Self {
         if start == end {
             panic!("start and end must be different");
@@ -476,12 +478,18 @@ impl LineSegment {
             ))
         }
     }
+
+    /// Iterator over all coordinates allowing ordinal steps which begins on the start coordinate
+    /// and ends with the end coordinate (inclusively)
     pub fn iter(&self) -> Iter {
         Iter(Finite {
             iter: self.infinite_iter(),
             remaining: self.num_steps(),
         })
     }
+
+    /// Iterator over all coordinates allowing only cardinal steps which begins on the start
+    /// coordinate and ends with the end coordinate (inclusively)
     pub fn cardinal_iter(&self) -> CardinalIter {
         CardinalIter(Finite {
             iter: self.infinite_cardinal_iter(),
@@ -720,14 +728,98 @@ impl Iterator for CardinalStepIter {
     }
 }
 
+/// The `LineSegment` type can't represent line segments of 0 length. It's often convenient for
+/// users to treat 0-length line segments as points. This type represent line segments which can be
+/// of 0 length, treating such lines as single points.
+pub enum LineSegmentOrPoint {
+    LineSegment(LineSegment),
+    Point(Coord),
+}
+
+pub type LineSegmentOrPointIter = Either<Iter, iter::Once<Coord>>;
+pub type LineSegmentOrPointCardinalIter = Either<CardinalIter, iter::Once<Coord>>;
+
+impl LineSegmentOrPoint {
+    pub fn new(start: Coord, end: Coord) -> Self {
+        match LineSegment::try_new(start, end) {
+            Ok(line_segment) => Self::LineSegment(line_segment),
+            Err(StartAndEndAreTheSame) => Self::Point(start),
+        }
+    }
+    pub fn start(&self) -> Coord {
+        match self {
+            Self::LineSegment(line_segment) => line_segment.start(),
+            Self::Point(coord) => *coord,
+        }
+    }
+    pub fn end(&self) -> Coord {
+        match self {
+            Self::LineSegment(line_segment) => line_segment.end(),
+            Self::Point(coord) => *coord,
+        }
+    }
+    pub fn delta(&self) -> Coord {
+        match self {
+            Self::LineSegment(line_segment) => line_segment.delta(),
+            Self::Point(_) => Coord::new(0, 0),
+        }
+    }
+    pub fn num_steps(&self) -> u32 {
+        match self {
+            Self::LineSegment(line_segment) => line_segment.num_steps(),
+            Self::Point(_) => 0,
+        }
+    }
+    pub fn num_cardinal_steps(&self) -> u32 {
+        match self {
+            Self::LineSegment(line_segment) => line_segment.num_cardinal_steps(),
+            Self::Point(_) => 0,
+        }
+    }
+    pub fn reverse(&self) -> Self {
+        match self {
+            Self::LineSegment(line_segment) => Self::LineSegment(line_segment.reverse()),
+            Self::Point(coord) => Self::Point(*coord),
+        }
+    }
+
+    /// Iterator over all coordinates allowing ordinal steps which begins on the start coordinate
+    /// and ends with the end coordinate (inclusively)
+    pub fn iter(&self) -> LineSegmentOrPointIter {
+        match self {
+            Self::LineSegment(line_segment) => Either::Left(line_segment.iter()),
+            Self::Point(coord) => Either::Right(iter::once(*coord)),
+        }
+    }
+
+    /// Iterator over all coordinates allowing only cardinal steps which begins on the start
+    /// coordinate and ends with the end coordinate (inclusively)
+    pub fn cardinal_iter(&self) -> LineSegmentOrPointCardinalIter {
+        match self {
+            Self::LineSegment(line_segment) => Either::Left(line_segment.cardinal_iter()),
+            Self::Point(coord) => Either::Right(iter::once(*coord)),
+        }
+    }
+}
+
+/// Returns an iterator over all the coordinates between start and end (inclusive) along a straight
+/// (rasterized) line which includes ordinal steps. `start` and `end` may be the same.
+pub fn coords_between(start: Coord, end: Coord) -> impl Iterator<Item = Coord> {
+    LineSegmentOrPoint::new(start, end).iter()
+}
+
+/// Returns an iterator over all the coordinates between start and end (inclusive) along a straight
+/// (rasterized) line which includes only cardinal steps. `start` and `end` may be the same.
+pub fn coords_between_cardinal(start: Coord, end: Coord) -> impl Iterator<Item = Coord> {
+    LineSegmentOrPoint::new(start, end).cardinal_iter()
+}
+
 #[cfg(test)]
 mod test {
-    extern crate grid_2d;
-    extern crate rand;
-    use self::grid_2d::{Grid, Size};
-    use self::rand::rngs::StdRng;
-    use self::rand::{Rng, SeedableRng};
     use super::*;
+    use grid_2d::{Grid, Size};
+    use rand::rngs::StdRng;
+    use rand::{Rng, SeedableRng};
 
     trait TraverseTrait {
         type Steps: StepsTrait + Clone + Eq;
@@ -1116,6 +1208,17 @@ mod test {
         assert_eq!(
             CardinalStepIter::new(Coord::new(3, 1)).collect::<Vec<_>>(),
             [East, South, East, East, East]
+        );
+    }
+
+    #[test]
+    fn basic() {
+        let s = LineSegment::new(Coord::new(1, 1), Coord::new(3, 1))
+            .iter()
+            .collect::<Vec<_>>();
+        assert_eq!(
+            s,
+            vec![Coord::new(1, 1), Coord::new(2, 1), Coord::new(3, 1)]
         );
     }
 }
