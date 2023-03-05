@@ -622,6 +622,9 @@ impl InfiniteStepIter {
     pub fn step(&mut self) -> Direction {
         self.0.next()
     }
+    pub fn step_back(&mut self) -> Direction {
+        self.0.prev()
+    }
 }
 
 impl Iterator for InfiniteStepIter {
@@ -652,6 +655,9 @@ impl InfiniteCardinalStepIter {
     }
     pub fn step(&mut self) -> Direction {
         self.0.next()
+    }
+    pub fn step_back(&mut self) -> Direction {
+        self.0.prev()
     }
 }
 
