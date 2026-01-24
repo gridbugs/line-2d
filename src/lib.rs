@@ -1,4 +1,4 @@
-pub use coord_2d::Coord;
+pub use coord_2d::ICoord;
 pub use direction::Direction;
 use direction::{CardinalDirection, OrdinalDirection};
 use either::Either;
@@ -6,12 +6,12 @@ use either::Either;
 use serde::{Deserialize, Serialize};
 use std::iter;
 
-fn delta_num_steps(delta: Coord) -> u32 {
+fn delta_num_steps(delta: ICoord) -> u32 {
     delta.x.abs().max(delta.y.abs()) as u32 + 1
 }
 
-fn delta_num_cardinal_steps(delta: Coord) -> u32 {
-    delta.x.abs() as u32 + delta.y.abs() as u32 + 1
+fn delta_num_cardinal_steps(delta: ICoord) -> u32 {
+    delta.x.unsigned_abs() + delta.y.unsigned_abs() + 1
 }
 
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
@@ -40,9 +40,9 @@ struct StepsDesc {
 }
 
 impl StepsDesc {
-    fn new(delta: Coord) -> Self {
-        let delta_x_abs = delta.x.abs() as u32;
-        let delta_y_abs = delta.y.abs() as u32;
+    fn new(delta: ICoord) -> Self {
+        let delta_x_abs = delta.x.unsigned_abs();
+        let delta_y_abs = delta.y.unsigned_abs();
         if delta_x_abs > delta_y_abs {
             let major = if delta.x > 0 {
                 CardinalDirection::East
@@ -172,20 +172,20 @@ where
     S: StepsTrait,
 {
     steps: S,
-    current: Coord,
+    current: ICoord,
 }
 
 impl<S> GeneralInfiniteIter<S>
 where
     S: StepsTrait,
 {
-    fn new_exclude_start(start: Coord, steps: S) -> Self {
+    fn new_exclude_start(start: ICoord, steps: S) -> Self {
         Self {
             current: start,
             steps,
         }
     }
-    fn new_include_start(start: Coord, steps: S) -> Self {
+    fn new_include_start(start: ICoord, steps: S) -> Self {
         let mut iter = Self::new_exclude_start(start, steps);
         let backward_step = iter.steps.prev();
         iter.current += backward_step.coord();
@@ -203,7 +203,7 @@ impl<S> Iterator for GeneralInfiniteIter<S>
 where
     S: StepsTrait,
 {
-    type Item = Coord;
+    type Item = ICoord;
     fn next(&mut self) -> Option<Self::Item> {
         let step = self.steps.next().coord();
         if let Some(next_coord) = self.current.checked_add(step) {
@@ -220,7 +220,7 @@ where
 pub struct InfiniteIter(GeneralInfiniteIter<Steps>);
 
 impl Iterator for InfiniteIter {
-    type Item = Coord;
+    type Item = ICoord;
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
     }
@@ -231,7 +231,7 @@ impl Iterator for InfiniteIter {
 pub struct InfiniteCardinalIter(GeneralInfiniteIter<CardinalSteps>);
 
 impl Iterator for InfiniteCardinalIter {
-    type Item = Coord;
+    type Item = ICoord;
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
     }
@@ -263,7 +263,7 @@ where
 pub struct Iter(Finite<InfiniteIter>);
 
 impl Iterator for Iter {
-    type Item = Coord;
+    type Item = ICoord;
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
     }
@@ -274,7 +274,7 @@ impl Iterator for Iter {
 pub struct CardinalIter(Finite<InfiniteCardinalIter>);
 
 impl Iterator for CardinalIter {
-    type Item = Coord;
+    type Item = ICoord;
     fn next(&mut self) -> Option<Self::Item> {
         self.0.next()
     }
@@ -284,7 +284,7 @@ impl Iterator for CardinalIter {
 pub struct Node {
     pub next: Direction,
     pub prev: Direction,
-    pub coord: Coord,
+    pub coord: ICoord,
 }
 
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
@@ -294,7 +294,7 @@ where
     S: StepsTrait,
 {
     steps: S,
-    current: Coord,
+    current: ICoord,
 }
 
 impl<S> Iterator for GeneralInfiniteNodeIter<S>
@@ -387,8 +387,8 @@ impl Config {
 #[cfg_attr(feature = "serialize", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct LineSegment {
-    start: Coord,
-    end: Coord,
+    start: ICoord,
+    end: ICoord,
 }
 
 #[derive(Debug)]
@@ -398,7 +398,7 @@ pub struct StartAndEndAreTheSame;
 pub struct ZeroDelta;
 
 impl LineSegment {
-    pub fn try_new(start: Coord, end: Coord) -> Result<Self, StartAndEndAreTheSame> {
+    pub fn try_new(start: ICoord, end: ICoord) -> Result<Self, StartAndEndAreTheSame> {
         if start == end {
             Err(StartAndEndAreTheSame)
         } else {
@@ -407,19 +407,19 @@ impl LineSegment {
     }
 
     /// Creates a new `LineSegment` panicking if `start` and `end` are the same
-    pub fn new(start: Coord, end: Coord) -> Self {
+    pub fn new(start: ICoord, end: ICoord) -> Self {
         if start == end {
             panic!("start and end must be different");
         }
         Self { start, end }
     }
-    pub fn start(&self) -> Coord {
+    pub fn start(&self) -> ICoord {
         self.start
     }
-    pub fn end(&self) -> Coord {
+    pub fn end(&self) -> ICoord {
         self.end
     }
-    pub fn delta(&self) -> Coord {
+    pub fn delta(&self) -> ICoord {
         self.end - self.start
     }
     pub fn num_steps(&self) -> u32 {
@@ -498,26 +498,18 @@ impl LineSegment {
     }
     pub fn config_iter(&self, config: Config) -> Iter {
         let iter = self.config_infinite_iter(config.into_infinite());
-        let remaining = if let Some(num_steps) = self
+        let remaining = self
             .num_steps()
             .checked_sub(config.exclude_start as u32 + config.exclude_end as u32)
-        {
-            num_steps
-        } else {
-            0
-        };
+            .unwrap_or_default();
         Iter(Finite { iter, remaining })
     }
     pub fn config_cardinal_iter(&self, config: Config) -> CardinalIter {
         let iter = self.config_infinite_cardinal_iter(config.into_infinite());
-        let remaining = if let Some(num_steps) = self
+        let remaining = self
             .num_cardinal_steps()
             .checked_sub(config.exclude_start as u32 + config.exclude_end as u32)
-        {
-            num_steps
-        } else {
-            0
-        };
+            .unwrap_or_default();
         CardinalIter(Finite { iter, remaining })
     }
 
@@ -576,26 +568,18 @@ impl LineSegment {
     }
     pub fn config_node_iter(&self, config: Config) -> NodeIter {
         let iter = self.config_infinite_node_iter(config.into_infinite());
-        let remaining = if let Some(num_steps) = self
+        let remaining = self
             .num_steps()
             .checked_sub(config.exclude_start as u32 + config.exclude_end as u32)
-        {
-            num_steps
-        } else {
-            0
-        };
+            .unwrap_or_default();
         NodeIter(Finite { iter, remaining })
     }
     pub fn config_cardinal_node_iter(&self, config: Config) -> CardinalNodeIter {
         let iter = self.config_infinite_cardinal_node_iter(config.into_infinite());
-        let remaining = if let Some(num_steps) = self
+        let remaining = self
             .num_cardinal_steps()
             .checked_sub(config.exclude_start as u32 + config.exclude_end as u32)
-        {
-            num_steps
-        } else {
-            0
-        };
+            .unwrap_or_default();
         CardinalNodeIter(Finite { iter, remaining })
     }
 }
@@ -605,15 +589,15 @@ impl LineSegment {
 pub struct InfiniteStepIter(Steps);
 
 impl InfiniteStepIter {
-    pub fn try_new(delta: Coord) -> Result<Self, ZeroDelta> {
-        if delta == Coord::new(0, 0) {
+    pub fn try_new(delta: ICoord) -> Result<Self, ZeroDelta> {
+        if delta == ICoord::new(0, 0) {
             Err(ZeroDelta)
         } else {
             Ok(Self(StepsDesc::new(delta).into_steps()))
         }
     }
-    pub fn new(delta: Coord) -> Self {
-        if delta == Coord::new(0, 0) {
+    pub fn new(delta: ICoord) -> Self {
+        if delta == ICoord::new(0, 0) {
             panic!("delta must not be zero");
         } else {
             Self(StepsDesc::new(delta).into_steps())
@@ -639,15 +623,15 @@ impl Iterator for InfiniteStepIter {
 pub struct InfiniteCardinalStepIter(CardinalSteps);
 
 impl InfiniteCardinalStepIter {
-    pub fn try_new(delta: Coord) -> Result<Self, ZeroDelta> {
-        if delta == Coord::new(0, 0) {
+    pub fn try_new(delta: ICoord) -> Result<Self, ZeroDelta> {
+        if delta == ICoord::new(0, 0) {
             Err(ZeroDelta)
         } else {
             Ok(Self(StepsDesc::new(delta).into_cardinal_steps()))
         }
     }
-    pub fn new(delta: Coord) -> Self {
-        if delta == Coord::new(0, 0) {
+    pub fn new(delta: ICoord) -> Self {
+        if delta == ICoord::new(0, 0) {
             panic!("delta must not be zero");
         } else {
             Self(StepsDesc::new(delta).into_cardinal_steps())
@@ -676,13 +660,13 @@ pub struct StepIter {
 }
 
 impl StepIter {
-    pub fn try_new(delta: Coord) -> Result<Self, ZeroDelta> {
+    pub fn try_new(delta: ICoord) -> Result<Self, ZeroDelta> {
         Ok(Self {
             infinite: InfiniteStepIter::try_new(delta)?,
             remaining: delta_num_steps(delta),
         })
     }
-    pub fn new(delta: Coord) -> Self {
+    pub fn new(delta: ICoord) -> Self {
         Self {
             infinite: InfiniteStepIter::new(delta),
             remaining: delta_num_steps(delta),
@@ -709,13 +693,13 @@ pub struct CardinalStepIter {
 }
 
 impl CardinalStepIter {
-    pub fn try_new(delta: Coord) -> Result<Self, ZeroDelta> {
+    pub fn try_new(delta: ICoord) -> Result<Self, ZeroDelta> {
         Ok(Self {
             infinite: InfiniteCardinalStepIter::try_new(delta)?,
             remaining: delta_num_cardinal_steps(delta),
         })
     }
-    pub fn new(delta: Coord) -> Self {
+    pub fn new(delta: ICoord) -> Self {
         Self {
             infinite: InfiniteCardinalStepIter::new(delta),
             remaining: delta_num_cardinal_steps(delta),
@@ -739,35 +723,35 @@ impl Iterator for CardinalStepIter {
 /// of 0 length, treating such lines as single points.
 pub enum LineSegmentOrPoint {
     LineSegment(LineSegment),
-    Point(Coord),
+    Point(ICoord),
 }
 
-pub type LineSegmentOrPointIter = Either<Iter, iter::Once<Coord>>;
-pub type LineSegmentOrPointCardinalIter = Either<CardinalIter, iter::Once<Coord>>;
+pub type LineSegmentOrPointIter = Either<Iter, iter::Once<ICoord>>;
+pub type LineSegmentOrPointCardinalIter = Either<CardinalIter, iter::Once<ICoord>>;
 
 impl LineSegmentOrPoint {
-    pub fn new(start: Coord, end: Coord) -> Self {
+    pub fn new(start: ICoord, end: ICoord) -> Self {
         match LineSegment::try_new(start, end) {
             Ok(line_segment) => Self::LineSegment(line_segment),
             Err(StartAndEndAreTheSame) => Self::Point(start),
         }
     }
-    pub fn start(&self) -> Coord {
+    pub fn start(&self) -> ICoord {
         match self {
             Self::LineSegment(line_segment) => line_segment.start(),
             Self::Point(coord) => *coord,
         }
     }
-    pub fn end(&self) -> Coord {
+    pub fn end(&self) -> ICoord {
         match self {
             Self::LineSegment(line_segment) => line_segment.end(),
             Self::Point(coord) => *coord,
         }
     }
-    pub fn delta(&self) -> Coord {
+    pub fn delta(&self) -> ICoord {
         match self {
             Self::LineSegment(line_segment) => line_segment.delta(),
-            Self::Point(_) => Coord::new(0, 0),
+            Self::Point(_) => ICoord::new(0, 0),
         }
     }
     pub fn num_steps(&self) -> u32 {
@@ -810,31 +794,31 @@ impl LineSegmentOrPoint {
 
 /// Returns an iterator over all the coordinates between start and end (inclusive) along a straight
 /// (rasterized) line which includes ordinal steps. `start` and `end` may be the same.
-pub fn coords_between(start: Coord, end: Coord) -> impl Iterator<Item = Coord> {
+pub fn coords_between(start: ICoord, end: ICoord) -> impl Iterator<Item = ICoord> {
     LineSegmentOrPoint::new(start, end).iter()
 }
 
 /// Returns an iterator over all the coordinates between start and end (inclusive) along a straight
 /// (rasterized) line which includes only cardinal steps. `start` and `end` may be the same.
-pub fn coords_between_cardinal(start: Coord, end: Coord) -> impl Iterator<Item = Coord> {
+pub fn coords_between_cardinal(start: ICoord, end: ICoord) -> impl Iterator<Item = ICoord> {
     LineSegmentOrPoint::new(start, end).cardinal_iter()
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
-    use grid_2d::{Grid, Size};
+    use grid_2d::{Grid, UCoord};
     use rand::rngs::StdRng;
     use rand::{Rng, SeedableRng};
 
     trait TraverseTrait {
         type Steps: StepsTrait + Clone + Eq;
-        type Iter: Iterator<Item = Coord> + ::std::fmt::Debug;
+        type Iter: Iterator<Item = ICoord> + ::std::fmt::Debug;
         fn iter(&self) -> Self::Iter;
         fn config_iter(&self, config: Config) -> Self::Iter;
         fn num_steps(&self) -> u32;
-        fn start(&self) -> Coord;
-        fn end(&self) -> Coord;
+        fn start(&self) -> ICoord;
+        fn end(&self) -> ICoord;
         fn steps(&self) -> Self::Steps;
     }
 
@@ -856,10 +840,10 @@ mod test {
         fn num_steps(&self) -> u32 {
             self.0.num_steps()
         }
-        fn start(&self) -> Coord {
+        fn start(&self) -> ICoord {
             self.0.start
         }
-        fn end(&self) -> Coord {
+        fn end(&self) -> ICoord {
             self.0.end
         }
         fn steps(&self) -> Self::Steps {
@@ -879,10 +863,10 @@ mod test {
         fn num_steps(&self) -> u32 {
             self.0.num_cardinal_steps()
         }
-        fn start(&self) -> Coord {
+        fn start(&self) -> ICoord {
             self.0.start
         }
-        fn end(&self) -> Coord {
+        fn end(&self) -> ICoord {
             self.0.end
         }
         fn steps(&self) -> Self::Steps {
@@ -891,7 +875,7 @@ mod test {
     }
 
     trait InfiniteTraverseTrait {
-        type Iter: Iterator<Item = Coord>;
+        type Iter: Iterator<Item = ICoord>;
         fn iter(&self) -> Self::Iter;
         fn config_iter(&self, config: InfiniteConfig) -> Self::Iter;
     }
@@ -1009,11 +993,11 @@ mod test {
 
     fn rand_int<R: Rng>(rng: &mut R) -> i32 {
         const MAX: i32 = 100;
-        rng.gen::<i32>() % MAX
+        rng.random::<i32>() % MAX
     }
 
-    fn rand_coord<R: Rng>(rng: &mut R) -> Coord {
-        Coord::new(rand_int(rng), rand_int(rng))
+    fn rand_coord<R: Rng>(rng: &mut R) -> ICoord {
+        ICoord::new(rand_int(rng), rand_int(rng))
     }
 
     fn rand_line_segment<R: Rng>(rng: &mut R) -> LineSegment {
@@ -1027,12 +1011,12 @@ mod test {
 
     #[test]
     fn all() {
-        test_properties(LineSegment::new(Coord::new(0, 0), Coord::new(1, 1)));
-        test_properties(LineSegment::new(Coord::new(0, 0), Coord::new(1, 0)));
-        test_properties(LineSegment::new(Coord::new(0, 0), Coord::new(2, 1)));
-        test_properties(LineSegment::new(Coord::new(1, -1), Coord::new(0, 0)));
-        test_properties(LineSegment::new(Coord::new(1, 100), Coord::new(0, 0)));
-        test_properties(LineSegment::new(Coord::new(100, 1), Coord::new(0, 0)));
+        test_properties(LineSegment::new(ICoord::new(0, 0), ICoord::new(1, 1)));
+        test_properties(LineSegment::new(ICoord::new(0, 0), ICoord::new(1, 0)));
+        test_properties(LineSegment::new(ICoord::new(0, 0), ICoord::new(2, 1)));
+        test_properties(LineSegment::new(ICoord::new(1, -1), ICoord::new(0, 0)));
+        test_properties(LineSegment::new(ICoord::new(1, 100), ICoord::new(0, 0)));
+        test_properties(LineSegment::new(ICoord::new(100, 1), ICoord::new(0, 0)));
         const NUM_RAND_TESTS: u32 = 10000;
         let mut rng = StdRng::seed_from_u64(0);
         for _ in 0..NUM_RAND_TESTS {
@@ -1042,24 +1026,24 @@ mod test {
 
     #[test]
     fn infinite_traverse() {
-        let line = LineSegment::new(Coord::new(0, 0), Coord::new(1, 0));
+        let line = LineSegment::new(ICoord::new(0, 0), ICoord::new(1, 0));
         let first_4 = InfiniteTraverse(line).iter().take(4).collect::<Vec<_>>();
         assert_eq!(
             &first_4,
             &[
-                Coord::new(0, 0),
-                Coord::new(1, 0),
-                Coord::new(2, 0),
-                Coord::new(3, 0),
+                ICoord::new(0, 0),
+                ICoord::new(1, 0),
+                ICoord::new(2, 0),
+                ICoord::new(3, 0),
             ]
         );
     }
 
     fn render_iter<I>(iter: I) -> Vec<String>
     where
-        I: Iterator<Item = Coord>,
+        I: Iterator<Item = ICoord>,
     {
-        let mut grid = Grid::new_clone(Size::new(10, 10), '.');
+        let mut grid = Grid::new_clone(UCoord::new(10, 10), '.');
         for coord in iter {
             *grid.get_checked_mut(coord) = '#';
         }
@@ -1087,7 +1071,7 @@ mod test {
                 Direction::NorthWest | Direction::SouthEast => '\\',
             }
         }
-        let mut grid = Grid::new_clone(Size::new(10, 10), '.');
+        let mut grid = Grid::new_clone(UCoord::new(10, 10), '.');
         for node in iter {
             let ch = render_node(node);
             *grid.get_checked_mut(node.coord) = ch;
@@ -1107,7 +1091,7 @@ mod test {
     #[test]
     fn examples() {
         assert_eq!(
-            render_iter(LineSegment::new(Coord::new(2, 3), Coord::new(8, 6)).iter()),
+            render_iter(LineSegment::new(ICoord::new(2, 3), ICoord::new(8, 6)).iter()),
             &[
                 "..........",
                 "..........",
@@ -1123,7 +1107,7 @@ mod test {
         );
         assert_eq!(
             render_iter(
-                LineSegment::new(Coord::new(2, 3), Coord::new(8, 6)).config_iter(Config {
+                LineSegment::new(ICoord::new(2, 3), ICoord::new(8, 6)).config_iter(Config {
                     exclude_start: true,
                     exclude_end: true
                 })
@@ -1143,7 +1127,7 @@ mod test {
         );
 
         assert_eq!(
-            render_iter(LineSegment::new(Coord::new(2, 3), Coord::new(8, 6)).cardinal_iter()),
+            render_iter(LineSegment::new(ICoord::new(2, 3), ICoord::new(8, 6)).cardinal_iter()),
             &[
                 "..........",
                 "..........",
@@ -1158,7 +1142,7 @@ mod test {
             ]
         );
         assert_eq!(
-            render_iter(LineSegment::new(Coord::new(6, 2), Coord::new(6, 7)).iter()),
+            render_iter(LineSegment::new(ICoord::new(6, 2), ICoord::new(6, 7)).iter()),
             &[
                 "..........",
                 "..........",
@@ -1173,7 +1157,7 @@ mod test {
             ]
         );
         assert_eq!(
-            render_iter(LineSegment::new(Coord::new(3, 7), Coord::new(8, 7)).iter()),
+            render_iter(LineSegment::new(ICoord::new(3, 7), ICoord::new(8, 7)).iter()),
             &[
                 "..........",
                 "..........",
@@ -1188,7 +1172,7 @@ mod test {
             ]
         );
         assert_eq!(
-            render_nodes(LineSegment::new(Coord::new(7, 1), Coord::new(2, 8)).node_iter()),
+            render_nodes(LineSegment::new(ICoord::new(7, 1), ICoord::new(2, 8)).node_iter()),
             &[
                 "..........",
                 "......./..",
@@ -1208,23 +1192,23 @@ mod test {
     fn step() {
         use Direction::*;
         assert_eq!(
-            StepIter::new(Coord::new(4, 1)).collect::<Vec<_>>(),
+            StepIter::new(ICoord::new(4, 1)).collect::<Vec<_>>(),
             [East, East, SouthEast, East, East]
         );
         assert_eq!(
-            CardinalStepIter::new(Coord::new(3, 1)).collect::<Vec<_>>(),
+            CardinalStepIter::new(ICoord::new(3, 1)).collect::<Vec<_>>(),
             [East, South, East, East, East]
         );
     }
 
     #[test]
     fn basic() {
-        let s = LineSegment::new(Coord::new(1, 1), Coord::new(3, 1))
+        let s = LineSegment::new(ICoord::new(1, 1), ICoord::new(3, 1))
             .iter()
             .collect::<Vec<_>>();
         assert_eq!(
             s,
-            vec![Coord::new(1, 1), Coord::new(2, 1), Coord::new(3, 1)]
+            vec![ICoord::new(1, 1), ICoord::new(2, 1), ICoord::new(3, 1)]
         );
     }
 }
